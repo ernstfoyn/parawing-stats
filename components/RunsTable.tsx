@@ -42,6 +42,8 @@ export interface RunsTableProps {
   tzOffsetMin: number | null;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** true when no wind direction exists, so an empty list is expected rather than the rider's doing */
+  needsWind?: boolean;
   /** narrower layout for the column beside the map */
   compact?: boolean;
 }
@@ -53,6 +55,8 @@ const COPY = {
     emptyTitle: "No downwind candidates on this track",
     emptyBody:
       "Nothing is downwind yet — neither by the classifier nor by you. A stretch counts as downwind when it runs within 55° of straight downwind, which is too deep to hold with the parawing still flying. Label a block in the segment timeline below and it appears here immediately.",
+    emptyBodyNoWind:
+      "There is no wind direction yet, so there is nothing to measure a course against and no stretch can be called downwind. Set a wind source and the runs appear here, numbered on the map.",
     footnote:
       "Open badges are the classifier's candidates; filled badges are labels you confirmed, and the badge number is the order you sailed the stretches in. Rows are listed longest first. GPS and station wind cannot show whether the wing was packed, so every row here is a candidate until you say otherwise, and a powered reach is never listed here.",
   },
@@ -62,6 +66,8 @@ const COPY = {
     emptyTitle: "No upwind beats on this track",
     emptyBody:
       "Nothing is labelled upwind yet — neither by the classifier nor by you. With no wind set there is nothing to tell upwind from downwind, so label a block in the timeline below.",
+    emptyBodyNoWind:
+      "No wind direction is set, so no stretch can be called upwind — and without one there is no VMG to report either. Set a wind source and the beats and their VMG appear here.",
     footnote:
       "VMG is the part of your speed that actually went towards the wind, which is the number that says whether a beat was worth sailing. It is only as good as the wind it is measured against. The badge number is the order you sailed the stretches in; rows are listed longest first.",
   },
@@ -75,6 +81,7 @@ export default function RunsTable({
   tzOffsetMin,
   selectedId,
   onSelect,
+  needsWind = false,
   compact = false,
 }: RunsTableProps) {
   const copy = COPY[kind];
@@ -103,7 +110,12 @@ export default function RunsTable({
   }, [runs]);
 
   if (rows.length === 0) {
-    return <EmptyState title={copy.emptyTitle} body={copy.emptyBody} />;
+    return (
+      <EmptyState
+        title={needsWind ? "Waiting on the wind" : copy.emptyTitle}
+        body={needsWind ? copy.emptyBodyNoWind : copy.emptyBody}
+      />
+    );
   }
 
   const longest = rows[0];

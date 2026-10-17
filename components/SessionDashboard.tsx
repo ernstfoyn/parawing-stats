@@ -32,6 +32,7 @@ import {
   formatDurationLong,
   formatOffset,
   formatSpeed,
+  formatTimeInOffset,
   SPEED_UNIT_LABEL,
   type SpeedUnit,
 } from "@/lib/units";
@@ -116,6 +117,20 @@ export default function SessionDashboard({
   const highlightId = analysis.dw.downwind.longest?.id ?? null;
 
   const vmgBasis = useMemo(() => describeVmgBasis(wind, analysis.wind), [wind, analysis.wind]);
+
+  /** Without a wind direction there is no upwind and no downwind, so nothing can be classified. */
+  const needsWind = wind.kind === "none";
+
+  /**
+   * Send the rider to the one thing that is missing. The wind panel searches for stations on its
+   * own, so by the time the scroll lands there the candidates are already listed.
+   */
+  const goToWind = useCallback(() => {
+    globalThis.document?.getElementById("panel-wind")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
 
   /* The selected stretch, and the chronological order to step through with ← / →. */
   const selectedRun = useMemo(() => {
@@ -215,8 +230,11 @@ export default function SessionDashboard({
   const m = analysis.metrics;
   const dw = analysis.dw;
   const tz = record.timezoneOffsetMin;
-  const localTime = (t: number) =>
-    new Date(t + (tz ?? 0) * 60_000).toISOString().slice(11, 16);
+  /**
+   * Session clock. `formatTimeInOffset` resolves a missing offset the way the label promises —
+   * as the browser's own offset — instead of silently showing UTC and calling it local time.
+   */
+  const localTime = (t: number) => formatTimeInOffset(t, tz);
 
   const dwKr = dw.downwind;
   const runsHint = [
@@ -286,6 +304,8 @@ export default function SessionDashboard({
           title="Where the session went"
           subtitle="One thin solid line per stretch, coloured by label. Click a run in either list to zoom to it, drop the rest of the track back to grey, and open that stretch up slice by slice."
         >
+          {needsWind && <NeedsWind onFind={goToWind} />}
+
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)]">
             <MapView
               points={analysis.points}
@@ -325,6 +345,7 @@ export default function SessionDashboard({
                   tzOffsetMin={tz}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
+                  needsWind={needsWind}
                   compact
                 />
               </section>
@@ -344,14 +365,14 @@ export default function SessionDashboard({
                   tzOffsetMin={tz}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
+                  needsWind={needsWind}
                   compact
                 />
               </section>
             </div>
           </div>
 
-          <p className="mt-3 text-[0.68rem] leading-relaxed text-grey">{vmgBasis}</p>
-
+          {!needsWind && <p className="mt-3 text-[0.68rem] leading-relaxed text-grey">{vmgBasis}</p>}
           {selectedRun && (
             <RunDetail
               points={analysis.points}
@@ -374,12 +395,22 @@ export default function SessionDashboard({
           title="How far, and how long, going downwind"
           subtitle="A stretch counts as a downwind run when it ran within 55° of straight downwind. That is too deep to hold with the parawing still flying, so these are the runs on wave energy — and every one of them is a candidate until you confirm it."
         >
-          {dwKr.count === 0 ? (
+          {needsWind ? (
             <div className="space-y-3">
               <p className="text-[0.76rem] leading-relaxed text-grey">
-                No stretch on this track ran deep enough to count as a downwind run yet, so there is
-                no distance or time to report. Label a block in the segment timeline below and the
-                numbers appear immediately.
+                This panel is the whole point of the app, and it cannot say anything until a wind
+                direction exists: without one, a run and a beat are the same stretch of water. Set a
+                wind source and the downwind runs, the distance, the time and the speed distribution
+                all appear at once.
+              </p>
+              <NeedsWind onFind={goToWind} />
+            </div>
+          ) : dwKr.count === 0 ? (
+            <div className="space-y-3">
+              <p className="text-[0.76rem] leading-relaxed text-grey">
+                Wind is set, but no stretch on this track ran deep enough to count as a downwind run
+                yet, so there is no distance or time to report. Label a block in the segment timeline
+                below and the numbers appear immediately.
               </p>
               {dw.poweredReach.count > 0 && (
                 <Note>
@@ -480,10 +511,11 @@ export default function SessionDashboard({
 
         {/* ------------------------------------------------------------------ wind */}
         <Panel
+          id="panel-wind"
           index="03"
           kicker="Wind"
-          title="Where the wind came from"
-          subtitle="Wind is estimated at your position from a station or a model — it is never a measurement of the conditions you rode in."
+          title={needsWind ? "Set the wind — this is what the analysis needs" : "Where the wind came from"}
+          subtitle="Every upwind/downwind number in this app is measured against this wind, and it is estimated at your position from a station or a model — never a measurement of the conditions you actually rode in."
         >
           <WindPanel
             startedAt={record.startedAt}
@@ -628,6 +660,33 @@ export default function SessionDashboard({
         {/* ----------------------------------------------------------- data quality */}
         <DataQuality record={record} points={analysis.points} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The one thing standing between an imported file and any analysis: a wind direction.
+ *
+ * Without it there is no upwind and no downwind — the two are the same stretch of water — so every
+ * stretch is `unclassified` and every run list is empty. That is the honest state, but wrapped in a
+ * bare empty list it reads exactly like a broken analysis, which is what a rider told us. So it is
+ * never shown as an empty list: it says what is missing, why it matters, and offers the fix.
+ */
+function NeedsWind({ onFind }: { onFind: () => void }) {
+  return (
+    <div className="border border-origin bg-card px-4 py-3">
+      <p className="mono text-[0.66rem] uppercase tracking-[0.1em] text-origin">
+        Wind is not set — nothing can be classified yet
+      </p>
+      <p className="mt-1.5 text-[0.78rem] leading-relaxed text-ink">
+        Upwind and downwind are the same stretch of water without a wind direction, so every stretch
+        on this track is currently <span className="mono">unclassified</span> and both run lists are
+        legitimately empty. Nothing has been guessed to fill them. Choose the nearest station and the
+        whole session classifies itself.
+      </p>
+      <button type="button" className="btn btn-primary mt-3" onClick={onFind}>
+        Find the nearest station →
+      </button>
     </div>
   );
 }

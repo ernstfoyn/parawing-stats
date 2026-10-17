@@ -11,6 +11,7 @@
 import type { ReactNode } from "react";
 
 export function Panel({
+  id,
   index,
   kicker,
   title,
@@ -20,6 +21,8 @@ export function Panel({
   className = "",
   bodyClassName = "",
 }: {
+  /** stable hook for in-page navigation, e.g. a callout pointing at this panel */
+  id?: string;
   /** two-digit plate number, e.g. "01" */
   index?: string;
   /** short mono label printed next to the number, e.g. "WIND" */
@@ -33,7 +36,7 @@ export function Panel({
 }) {
   const hasHead = Boolean(index || kicker || title || subtitle || actions);
   return (
-    <section className={`panel ${className}`}>
+    <section id={id} className={`panel ${className}`}>
       {hasHead && (
         <header className="panel-head">
           <div className="min-w-0 flex-1">

@@ -12,7 +12,7 @@
  * instead of quietly substituting something else.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   describeFailure,
   fetchObservations,
@@ -173,6 +173,25 @@ export default function WindPanel({
   }, [manualSpeedKn, manualGustKn, manualDir, wind, startedAt, endedAt, onChange]);
 
   const hasWind = wind.kind !== "none";
+
+  /**
+   * Find the candidate stations before the rider has to ask for them.
+   *
+   * A freshly imported file has no wind, and until one is set the whole session is unclassified —
+   * so the list of nearby stations is the single most useful thing this panel can show, and making
+   * the rider press a button to reveal it is a dead end they read as a broken app. This runs once,
+   * only while nothing is set, and it never *applies* a station: the list is a suggestion, and
+   * choosing stays the rider's decision.
+   */
+  const autoSearched = useRef(false);
+  useEffect(() => {
+    if (autoSearched.current || hasWind) return;
+    if (providerStatus?.available !== "yes" || !centroid) return;
+    autoSearched.current = true;
+    // Started as a microtask rather than inline: `search` flips the spinner on its first line, and
+    // setting state during the commit that scheduled this effect would cascade a render.
+    void Promise.resolve().then(search);
+  }, [hasWind, providerStatus, centroid, search]);
 
   return (
     <div className="space-y-4">
