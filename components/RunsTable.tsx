@@ -51,18 +51,19 @@ export interface RunsTableProps {
 const COPY = {
   downwind: {
     labelHeader: "Run",
-    vmgHeader: "VMG ↓",
+    /** not VMG: VMG is an upwind measure, so a downwind run is judged on how deep it ran */
+    secondHeader: "Depth",
     emptyTitle: "No downwind candidates on this track",
     emptyBody:
       "Nothing is downwind yet — neither by the classifier nor by you. A stretch counts as downwind when it runs within 55° of straight downwind, which is too deep to hold with the parawing still flying. Label a block in the segment timeline below and it appears here immediately.",
     emptyBodyNoWind:
       "There is no wind direction yet, so there is nothing to measure a course against and no stretch can be called downwind. Set a wind source and the runs appear here, numbered on the map.",
     footnote:
-      "Open badges are the classifier's candidates; filled badges are labels you confirmed, and the badge number is the order you sailed the stretches in. Rows are listed longest first. GPS and station wind cannot show whether the wing was packed, so every row here is a candidate until you say otherwise, and a powered reach is never listed here.",
+      "Open badges are the classifier's candidates; filled badges are labels you confirmed, and the badge number is the order you sailed the stretches in. Rows are listed longest first. Depth is the mean true wind angle, where 180° is straight downwind — it is the evidence for calling a stretch a run rather than a powered reach. GPS and station wind cannot show whether the wing was packed, so every row here is a candidate until you say otherwise, and a powered reach is never listed here.",
   },
   upwind: {
     labelHeader: "Beat",
-    vmgHeader: "VMG ↑",
+    secondHeader: "VMG ↑",
     emptyTitle: "No upwind beats on this track",
     emptyBody:
       "Nothing is labelled upwind yet — neither by the classifier nor by you. With no wind set there is nothing to tell upwind from downwind, so label a block in the timeline below.",
@@ -132,7 +133,7 @@ export default function RunsTable({
               <th className="num">Dist.</th>
               <th className="num">Time</th>
               <th className="num">{unit === "mps" ? "Speed m/s" : `${unit} / m/s`}</th>
-              <th className="num">{copy.vmgHeader}</th>
+              <th className="num">{copy.secondHeader}</th>
               {!compact && <th>Est.</th>}
             </tr>
           </thead>
@@ -171,7 +172,7 @@ export default function RunsTable({
                   <td className="num">{formatDistance(f.distanceM, 3)}</td>
                   <td className="num">{formatDuration(f.durationS)}</td>
                   <td className="num font-bold">{speedPair(f.avgSpeedMps, unit)}</td>
-                  <td className="num">{speedPair(runVmg(run, kind), unit)}</td>
+                  <td className="num">{secondNumber(run, kind, unit)}</td>
                   {!compact && (
                     <td className="text-grey">
                       {candidate ? `${Math.round(run.segment.auto.confidence * 100)}%` : "you"}
@@ -224,19 +225,32 @@ function RunBadge({
 }
 
 /**
- * VMG for a run in its own direction.
+ * The second number a run is judged by.
  *
- * Upwind VMG is the exact negative of downwind VMG at every sample (`vmg()` computes
+ * Upwind that is **VMG** — the part of your speed that actually went towards the wind, which is what
+ * says whether a beat was worth sailing. Downwind it is deliberately *not* VMG: VMG is an upwind
+ * measure, and dressing up a downwind run with it invites the one comparison this app exists to
+ * avoid. What matters about a downwind run instead is **how deep it ran** — its mean true wind angle
+ * — because that is the evidence for calling it a run rather than a powered reach.
+ *
+ * Upwind VMG is the exact negative of the stored downwind component at every sample (`vmg()` computes
  * `speed·cos(twa)` for up and `-speed·cos(twa)` for down), so negating the stored time-weighted mean
  * is exact rather than an approximation.
  *
  * A segment with no usable wind carries `avgWindSpeedMps === null`, and its VMG fields are a
  * placeholder 0 — showing "0.0 kn" there would state a measurement that was never taken.
  */
-function runVmg(run: TrackRun, kind: RunsKind): number | null {
+function runVmg(run: TrackRun): number | null {
   const f = run.segment.features;
   if (f.avgWindSpeedMps == null) return null;
-  return kind === "downwind" ? f.avgVmgDownMps : -f.avgVmgDownMps;
+  return -f.avgVmgDownMps;
+}
+
+/** Mean depth of a run's course, in degrees off the wind, or null when there was no wind. */
+function runTwa(run: TrackRun): number | null {
+  const f = run.segment.features;
+  if (f.avgWindSpeedMps == null) return null;
+  return Number.isFinite(f.avgTwaDeg) ? f.avgTwaDeg : null;
 }
 
 /** "11.1 / 5.7" — chosen unit and m/s, or just m/s when that is the chosen unit. */
@@ -244,4 +258,11 @@ function speedPair(mps: number | null, unit: SpeedUnit): string {
   if (mps == null || !Number.isFinite(mps)) return "—";
   if (unit === "mps") return `${mps.toFixed(1)} m/s`;
   return `${convertSpeed(mps, unit).toFixed(1)} / ${mps.toFixed(1)}`;
+}
+
+/** The second number in a row: VMG in knots for a beat, mean depth in degrees for a run. */
+function secondNumber(run: TrackRun, kind: RunsKind, unit: SpeedUnit): string {
+  if (kind === "upwind") return speedPair(runVmg(run), unit);
+  const twa = runTwa(run);
+  return twa == null ? "—" : `${Math.round(twa)}°`;
 }

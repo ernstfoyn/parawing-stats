@@ -86,7 +86,9 @@ export default function SegmentTimeline({
             const label = effectiveLabel(seg);
             const width = (Math.max(0, seg.features.durationS) / totalS) * 100;
             const isSelected = seg.id === selectedId;
-            const isHighlight = seg.id === highlightId;
+            // The passive "longest run" mark yields to a selection, exactly as on the map: two
+            // outlined blocks at once leave the rider unsure which stretch they are looking at.
+            const isHighlight = selectedId == null && seg.id === highlightId;
             return (
               <button
                 key={seg.id}
@@ -212,7 +214,12 @@ function SegmentEditor({
         <Mini label="Avg speed" value={`${formatSpeed(f.avgSpeedMps, unit)} ${unit}`} />
         <Mini label="Max speed" value={`${formatSpeed(f.maxSpeedMps, unit)} ${unit}`} />
         <Mini label="Avg TWA" value={Number.isFinite(f.avgTwaDeg) ? `${Math.round(f.avgTwaDeg)}°` : "—"} />
-        <Mini label="Avg VMG down" value={`${formatSpeed(f.avgVmgDownMps, unit)} ${unit}`} />
+        <Mini
+          label="Upwind VMG"
+          value={
+            f.avgWindSpeedMps == null ? "—" : `${formatSpeed(-f.avgVmgDownMps, unit)} ${unit}`
+          }
+        />
         <Mini label="Deep run" value={`${Math.round(f.deadRunFraction * 100)}%`} />
         <Mini label="Moving" value={`${Math.round(f.movingFraction * 100)}%`} />
       </div>

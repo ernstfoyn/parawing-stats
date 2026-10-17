@@ -3,10 +3,12 @@
 /**
  * Recharts views of a session.
  *
- * The speed/VMG profile is the workhorse: speed, upwind VMG and downwind VMG share one time axis so
- * a run can be read at a glance, with true wind angle as a faint over-plot on a second axis. Wind is
- * drawn separately because it comes from somewhere else (a station or a model) and must not be
- * confused with what the rider did.
+ * The speed profile is the workhorse: speed, upwind VMG and the along-wind component share one time
+ * axis so a stretch can be read at a glance, with true wind angle as a faint over-plot on a second
+ * axis. VMG is an upwind measure and is only ever named as such; the downwind series is the part of
+ * the speed that carried the rider *away* from the wind, which is a different quantity and is not
+ * called VMG. Wind is drawn separately because it comes from somewhere else (a station or a model)
+ * and must not be confused with what the rider did.
  *
  * Every series is time-based, never sample-index based, so a session recorded at 1 Hz and one at
  * 2 Hz look the same.
@@ -83,7 +85,8 @@ const axisStroke = "#b5b0a3";
 /** Series colours, matched to the segment colours so a line and its label agree. */
 const SPEED_COLOR = "#121211";
 const VMG_UP_COLOR = "#14a45c";
-const VMG_DOWN_COLOR = "#e0763a";
+/** the along-wind component: not VMG, which is an upwind measure */
+const ALONG_WIND_COLOR = "#e0763a";
 const TWA_COLOR = "#cbc7bc";
 const WIND_COLOR = "#0f7c7c";
 const GUST_COLOR = "#e0763a";
@@ -241,8 +244,8 @@ export function SpeedProfileChart({
             yAxisId="speed"
             type="monotone"
             dataKey="vmgDown"
-            name="VMG downwind"
-            stroke={VMG_DOWN_COLOR}
+            name="Along-wind"
+            stroke={ALONG_WIND_COLOR}
             strokeWidth={1.8}
             dot={false}
             connectNulls={false}

@@ -55,16 +55,16 @@ export function describeVmgBasis(
   summary: { observationCount: number; coverage: number; meanDirFromDeg: number | null },
 ): string {
   if (wind.kind === "none") {
-    return "VMG needs wind. Add a wind source and these columns fill in — nothing is guessed in the meantime.";
+    return "Upwind VMG needs wind. Add a wind source and the column fills in — nothing is guessed in the meantime.";
   }
   if (summary.meanDirFromDeg == null) {
-    return `The wind source (${describeWindSource(wind)}) reported no direction, so true wind angle and VMG cannot be derived. The columns stay blank rather than showing a zero.`;
+    return `The wind source (${describeWindSource(wind)}) reported no direction, so true wind angle and upwind VMG cannot be derived. The column stays blank rather than showing a zero.`;
   }
   const quality =
     wind.kind === "manual" ? "manual" : (providerById(wind.kind)?.quality ?? "modelled");
   const observations =
     summary.observationCount > 0 ? `${summary.observationCount} observations` : "no observations";
-  return `VMG against ${describeWindSource(wind)} — ${WIND_QUALITY_TEXT[quality]}, ${observations} over ${Math.round(summary.coverage * 100)}% of the track.`;
+  return `Upwind VMG measured against ${describeWindSource(wind)} — ${WIND_QUALITY_TEXT[quality]}, ${observations} over ${Math.round(summary.coverage * 100)}% of the track.`;
 }
 
 /* ------------------------------------------------------------------ segment */

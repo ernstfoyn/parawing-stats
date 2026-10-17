@@ -88,7 +88,8 @@ export default function RunDetail({
   );
 
   const isDownwind = label === "free_downwind" || label === "powered_downwind";
-  const vmg = f.avgWindSpeedMps == null ? null : isDownwind ? f.avgVmgDownMps : -f.avgVmgDownMps;
+  const vmg = f.avgWindSpeedMps == null ? null : -f.avgVmgDownMps;
+  const twa = f.avgWindSpeedMps == null || !Number.isFinite(f.avgTwaDeg) ? null : f.avgTwaDeg;
   // The heading names the stretch, so it does not need the label repeated next to it.
   const heading =
     label === "free_downwind"
@@ -151,10 +152,18 @@ export default function RunDetail({
         <Mini label="Avg speed" value={formatSpeed(f.avgSpeedMps, unit)} unit={SPEED_UNIT_LABEL[unit]} />
         <Mini label="Max speed" value={formatSpeed(f.maxSpeedMps, unit)} unit={SPEED_UNIT_LABEL[unit]} />
         <Mini
-          label={isDownwind ? "Avg VMG ↓" : "Avg VMG ↑"}
-          value={vmg == null ? "—" : formatSpeed(vmg, unit)}
-          unit={vmg == null ? undefined : SPEED_UNIT_LABEL[unit]}
-          hint={vmg == null ? "no wind on this stretch" : undefined}
+          label={isDownwind ? "Mean depth" : "Avg VMG ↑"}
+          value={isDownwind ? (twa == null ? "—" : `${Math.round(twa)}°`) : vmg == null ? "—" : formatSpeed(vmg, unit)}
+          unit={isDownwind || vmg == null ? undefined : SPEED_UNIT_LABEL[unit]}
+          hint={
+            isDownwind
+              ? twa == null
+                ? "no wind on this stretch"
+                : "true wind angle; 180° is straight downwind"
+              : vmg == null
+                ? "no wind on this stretch"
+                : undefined
+          }
         />
         <Mini
           label="Total turning"

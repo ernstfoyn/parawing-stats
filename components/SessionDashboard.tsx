@@ -297,15 +297,151 @@ export default function SessionDashboard({
       </header>
 
       <div className="space-y-4">
-        {/* ------------------------------------------------------------------ track */}
+        {/* --------------------------------------------------------------- session */}
         <Panel
           index="01"
+          kicker="Session"
+          title="The session at a glance"
+          subtitle="Every average is time-weighted over the real timestamps, never over sample counts. Heading time counts every second spent on that point of sail, transitions included; downwind distance and time count whole runs only."
+        >
+          {needsWind && <NeedsWind onFind={goToWind} />}
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
+            <Stat label="Distance" value={formatDistance(m.distanceM)} />
+            <Stat label="Moving time" value={formatDuration(m.movingTimeS)} hint={formatDurationLong(m.movingTimeS)} />
+            <Stat label="Elapsed" value={formatDuration(m.elapsedTimeS)} hint="including stops" />
+            <Stat
+              label="Avg speed"
+              value={formatSpeed(m.avgSpeedMps, unit)}
+              unit={SPEED_UNIT_LABEL[unit]}
+              hint="over moving time"
+            />
+            <Stat
+              label="Max speed"
+              value={formatSpeed(m.maxSpeedMps, unit)}
+              unit={SPEED_UNIT_LABEL[unit]}
+              accent="origin"
+              hint="3 s smoothed"
+            />
+            <Stat
+              label="Upwind heading time"
+              value={formatDuration(analysis.upwind.timeS)}
+              accent="signal"
+              hint={`${formatDistance(analysis.upwind.distanceM)} at TWA ≤ 70°`}
+            />
+            <Stat
+              label="Downwind heading time"
+              value={formatDuration(analysis.downwind.timeS)}
+              accent="familiar"
+              hint={`${formatDistance(analysis.downwind.distanceM)} at TWA ≥ 110°`}
+            />
+            <Stat
+              label="Avg upwind VMG"
+              value={formatSpeed(analysis.upwind.avgVmgMps, unit)}
+              unit={SPEED_UNIT_LABEL[unit]}
+              hint="the part of your speed that went towards the wind"
+            />
+          </div>
+
+          {/* Downwind headline. VMG is deliberately absent: it is an upwind measure, so a run is
+              reported as distance, time and speed, with depth as the evidence for its label. */}
+          <div className="mt-5 border-t border-rule pt-4">
+            <div className="mb-1 flex items-baseline justify-between gap-2">
+              <div className="label">Downwind</div>
+              <span className="mono text-[0.6rem] text-grey">
+                {dwKr.count} run{dwKr.count === 1 ? "" : "s"} ·{" "}
+                {formatDistance(dwKr.distanceM, 3)}
+              </span>
+            </div>
+            {needsWind ? (
+              <p className="text-[0.76rem] leading-relaxed text-grey">
+                Without a wind direction nothing here can be measured — a run and a beat are the same
+                stretch of water. Choose a station below and this block fills in.
+              </p>
+            ) : dwKr.count === 0 ? (
+              <p className="text-[0.76rem] leading-relaxed text-grey">
+                Wind is set, but no stretch ran deep enough to count as a downwind run, so there is no
+                distance or time to report.
+                {dw.poweredReach.count > 0 &&
+                  ` ${dw.poweredReach.count} powered reach${
+                    dw.poweredReach.count === 1 ? "" : "es"
+                  } (${formatDistance(dw.poweredReach.distanceM, 3)}) ${
+                    dw.poweredReach.count === 1 ? "was" : "were"
+                  } found and deliberately not counted.`}
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
+                <Stat label="Downwind distance" value={formatDistance(dwKr.distanceM)} accent="familiar" />
+                <Stat
+                  label="Downwind time"
+                  value={formatDuration(dwKr.durationS)}
+                  hint={formatDurationLong(dwKr.durationS)}
+                />
+                <Stat
+                  label="Runs"
+                  value={dwKr.count}
+                  accent="familiar"
+                  hint={runsHint || undefined}
+                />
+                <Stat
+                  label="Avg speed"
+                  value={formatSpeed(dwKr.avgSpeedMps, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                  hint="over the runs only"
+                />
+                <Stat
+                  label="Max speed"
+                  value={formatSpeed(dwKr.maxSpeedMps, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                  small
+                  hint="in a downwind run"
+                />
+                <Stat
+                  label="Longest run"
+                  value={formatDistance(dwKr.longest?.distanceM ?? 0)}
+                  small
+                  hint={dwKr.longest ? formatDuration(dwKr.longest.durationS) : undefined}
+                />
+                <Stat
+                  label="Deepest run"
+                  value={`${Math.round(Math.max(...dwRuns.map((r) => r.segment.features.avgTwaDeg), 0))}°`}
+                  small
+                  hint="mean TWA; 180° is straight downwind"
+                />
+                <Stat
+                  label="Powered reaches"
+                  value={dw.poweredReach.count}
+                  accent="origin"
+                  small
+                  hint={
+                    dw.poweredReach.count > 0
+                      ? `${formatDistance(dw.poweredReach.distanceM, 3)} — not counted as downwind`
+                      : "none on this track"
+                  }
+                />
+              </div>
+            )}
+          </div>
+
+          {!needsWind && (
+            <div className="mt-4">
+              <Note>
+                Downwind distance and time count the runs only. A powered reach is a stretch you were
+                still flying through with the course barely past the beam — it is reported separately
+                and never added in, because a parawing cannot hold a run with the wing up, so a powered
+                stretch is not a downwind one.
+              </Note>
+            </div>
+          )}
+        </Panel>
+
+        {/* ------------------------------------------------------------------ track */}
+        <Panel
+          index="02"
           kicker="Track"
           title="Where the session went"
           subtitle="One thin solid line per stretch, coloured by label. Click a run in either list to zoom to it, drop the rest of the track back to grey, and open that stretch up slice by slice."
         >
-          {needsWind && <NeedsWind onFind={goToWind} />}
-
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)]">
             <MapView
               points={analysis.points}
@@ -390,129 +526,35 @@ export default function SessionDashboard({
 
         {/* -------------------------------------------------------------- downwind */}
         <Panel
-          index="02"
+          index="03"
           kicker="Downwind"
-          title="How far, and how long, going downwind"
-          subtitle="A stretch counts as a downwind run when it ran within 55° of straight downwind. That is too deep to hold with the parawing still flying, so these are the runs on wave energy — and every one of them is a candidate until you confirm it."
+          title="How long you spent at which speed, going downwind"
+          subtitle="This is where your downwind time actually went, banded on round numbers in the unit you are reading. It covers the runs only — the ones counted in the session summary above."
         >
           {needsWind ? (
             <div className="space-y-3">
               <p className="text-[0.76rem] leading-relaxed text-grey">
-                This panel is the whole point of the app, and it cannot say anything until a wind
-                direction exists: without one, a run and a beat are the same stretch of water. Set a
-                wind source and the downwind runs, the distance, the time and the speed distribution
-                all appear at once.
+                There is no wind direction, so no stretch can be called downwind and there is nothing
+                to distribute yet — a run and a beat are the same stretch of water without one. Set a
+                wind source and this fills in at once.
               </p>
               <NeedsWind onFind={goToWind} />
             </div>
           ) : dwKr.count === 0 ? (
-            <div className="space-y-3">
-              <p className="text-[0.76rem] leading-relaxed text-grey">
-                Wind is set, but no stretch on this track ran deep enough to count as a downwind run
-                yet, so there is no distance or time to report. Label a block in the segment timeline
-                below and the numbers appear immediately.
-              </p>
-              {dw.poweredReach.count > 0 && (
-                <Note>
-                  {dw.poweredReach.count} stretch
-                  {dw.poweredReach.count === 1 ? "" : "es"} ({formatDistance(dw.poweredReach.distanceM, 3)},{" "}
-                  {formatDuration(dw.poweredReach.durationS)}) were powered reaches — the wing still
-                  flying, the course only just past the beam. They are deliberately not counted as
-                  downwind.
-                </Note>
-              )}
-            </div>
+            <p className="text-[0.76rem] leading-relaxed text-grey">
+              Wind is set, but no stretch on this track ran deep enough to count as a downwind run
+              yet, so there is no speed distribution to show. Label a block in the segment timeline
+              below and it appears immediately.
+            </p>
           ) : (
-            <>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-                <Stat
-                  label="Downwind distance"
-                  value={formatDistance(dwKr.distanceM)}
-                  accent="familiar"
-                />
-                <Stat
-                  label="Downwind time"
-                  value={formatDuration(dwKr.durationS)}
-                  hint={formatDurationLong(dwKr.durationS)}
-                />
-                <Stat
-                  label="Runs"
-                  value={dwKr.count}
-                  accent="familiar"
-                  hint={runsHint || undefined}
-                />
-                <Stat
-                  label="Avg speed"
-                  value={formatSpeed(dwKr.avgSpeedMps, unit)}
-                  unit={SPEED_UNIT_LABEL[unit]}
-                  hint="over the runs only"
-                />
-              </div>
-
-              <div className="mt-5 border-t border-quiet pt-4">
-                <SpeedBands points={analysis.points} ranges={dwRanges} unit={unit} />
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 border-t border-quiet pt-4 sm:grid-cols-3 lg:grid-cols-6">
-                <Stat
-                  label="Max speed"
-                  value={formatSpeed(dwKr.maxSpeedMps, unit)}
-                  unit={SPEED_UNIT_LABEL[unit]}
-                />
-                <Stat
-                  label="Avg DW VMG"
-                  value={formatSpeed(dwKr.avgVmgDownMps, unit)}
-                  unit={SPEED_UNIT_LABEL[unit]}
-                  hint="away from the wind"
-                />
-                <Stat
-                  label="Longest run"
-                  value={formatDistance(dwKr.longest?.distanceM ?? 0)}
-                  hint={dwKr.longest ? formatDuration(dwKr.longest.durationS) : undefined}
-                />
-                <Stat
-                  label="Longest run max"
-                  value={formatSpeed(dwKr.longest?.maxSpeedMps ?? null, unit)}
-                  unit={SPEED_UNIT_LABEL[unit]}
-                  small
-                />
-                <Stat
-                  label="Powered reaches"
-                  value={dw.poweredReach.count}
-                  accent="origin"
-                  small
-                  hint={
-                    dw.poweredReach.count > 0
-                      ? `${formatDistance(dw.poweredReach.distanceM, 3)} — not counted as downwind`
-                      : "none on this track"
-                  }
-                />
-                <Stat
-                  label="Deepest run"
-                  value={`${Math.round(
-                    Math.max(...dwRuns.map((r) => r.segment.features.avgTwaDeg), 0),
-                  )}°`}
-                  small
-                  hint="mean TWA; 180° is straight downwind"
-                />
-              </div>
-
-              <div className="mt-4">
-                <Note>
-                  Downwind distance and time count the runs only. A powered reach is a stretch you
-                  were still flying through with the course barely past the beam — it is reported
-                  separately and never added in, because a parawing cannot hold a run with the wing
-                  up, so a powered stretch is not a downwind one.
-                </Note>
-              </div>
-            </>
+            <SpeedBands points={analysis.points} ranges={dwRanges} unit={unit} />
           )}
         </Panel>
 
         {/* ------------------------------------------------------------------ wind */}
         <Panel
           id="panel-wind"
-          index="03"
+          index="04"
           kicker="Wind"
           title={needsWind ? "Set the wind — this is what the analysis needs" : "Where the wind came from"}
           subtitle="Every upwind/downwind number in this app is measured against this wind, and it is estimated at your position from a station or a model — never a measurement of the conditions you actually rode in."
@@ -529,66 +571,12 @@ export default function SessionDashboard({
           />
         </Panel>
 
-        {/* --------------------------------------------------------------- session */}
-        <Panel
-          index="04"
-          kicker="Session"
-          title="What the session added up to"
-          subtitle="All averages are time-weighted over the real timestamps, never over sample counts. Heading time counts every second spent on that point of sail, transitions included; the Downwind panel above counts only complete runs."
-        >
-          <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-            <Stat label="Distance" value={formatDistance(m.distanceM)} />
-            <Stat label="Moving time" value={formatDuration(m.movingTimeS)} hint={formatDurationLong(m.movingTimeS)} />
-            <Stat label="Elapsed" value={formatDuration(m.elapsedTimeS)} hint="including stops" />
-            <Stat
-              label="Avg speed"
-              value={formatSpeed(m.avgSpeedMps, unit)}
-              unit={SPEED_UNIT_LABEL[unit]}
-              hint="over moving time"
-            />
-            <Stat
-              label="Max speed"
-              value={formatSpeed(m.maxSpeedMps, unit)}
-              unit={SPEED_UNIT_LABEL[unit]}
-              accent="origin"
-              hint="3 s smoothed"
-            />
-            <Stat
-              label="Upwind heading time"
-              value={formatDuration(analysis.upwind.timeS)}
-              accent="signal"
-              hint={`${formatDistance(analysis.upwind.distanceM)} at TWA ≤ 70°`}
-            />
-            <Stat
-              label="Downwind heading time"
-              value={formatDuration(analysis.downwind.timeS)}
-              accent="familiar"
-              hint={`${formatDistance(analysis.downwind.distanceM)} at TWA ≥ 110°`}
-            />
-            <Stat
-              label="Avg VMG up / down"
-              value={`${formatSpeed(analysis.upwind.avgVmgMps, unit)} / ${formatSpeed(analysis.downwind.avgVmgMps, unit)}`}
-              unit={SPEED_UNIT_LABEL[unit]}
-              small
-              hint="positive toward / away from the wind"
-            />
-          </div>
-          {wind.kind === "none" && (
-            <div className="mt-4">
-              <Note tone="warn">
-                No wind data is set, so TWA, VMG and the downwind classification are unavailable.
-                Add a wind source above to unlock them. Nothing has been assumed in the meantime.
-              </Note>
-            </div>
-          )}
-        </Panel>
-
         {/* ---------------------------------------------------------- best efforts */}
         <Panel
           index="05"
           kicker="Best efforts"
           title="Best windows"
-          subtitle="The fastest one, two and three minute windows, and the best VMG in each. Bars are comparable down a column."
+          subtitle="The fastest one, two and three minute windows, with the best upwind VMG and along-wind speed in each. Bars are comparable down a column."
         >
           <BestWindows
             windows={efforts}
@@ -605,9 +593,9 @@ export default function SessionDashboard({
         {/* ---------------------------------------------------------------- charts */}
         <Panel
           index="06"
-          kicker="Speed & VMG"
+          kicker="Speed"
           title="The session as a curve"
-          subtitle="One time axis: speed, upwind VMG (toward the wind) and downwind VMG (away), with true wind angle faint behind."
+          subtitle="One time axis: your speed, your upwind VMG, and the along-wind part of your speed that carried you away from the wind — which is not VMG — with true wind angle faint behind."
         >
           <SpeedProfileChart
             data={chartData}

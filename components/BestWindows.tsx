@@ -5,8 +5,8 @@
  *
  * Each row is a real window of elapsed time, found by `lib/bestWindows.ts`, and the three bars per
  * duration are scaled against each other so the lengths are comparable down the column. Speed is
- * drawn in ink, upwind VMG in signal green and downwind VMG in Soft Origin, matching the rest of
- * the app.
+ * drawn in ink, upwind VMG in signal green and the along-wind component in Soft Origin, matching the
+ * rest of the app. Only the upwind figure is called VMG: a downwind stretch is not judged on VMG.
  *
  * A bar can be empty: when a rider spends a whole window on a reach, upwind VMG is at or below
  * zero and the number is shown for what it is rather than clamped to look better.
@@ -25,7 +25,7 @@ import { EmptyState } from "./ui";
 const METRIC_ROWS: { metric: EffortMetric; label: string; color: string }[] = [
   { metric: "speed", label: "Speed", color: "#121211" },
   { metric: "vmgUp", label: "VMG ↑", color: "#14a45c" },
-  { metric: "vmgDown", label: "VMG ↓", color: "#e0763a" },
+  { metric: "vmgDown", label: "Along ↓", color: "#e0763a" },
 ];
 
 export interface BestWindowsProps {

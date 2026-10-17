@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MlMap, Marker as MlMarker, Popup as MlPopup } from "maplibre-gl";
 import { effectiveLabel } from "@/lib/classify";
 import { downwindRuns, LEGEND_ORDER, segmentColor, SEGMENT_LABEL_TEXT } from "@/lib/summary";
+import { buildTrackFeatures, resolveTrackEmphasis } from "@/lib/trackEmphasis";
 import { compassPoint, formatSpeed, formatTimeInOffset, type SpeedUnit } from "@/lib/units";
 import type { EnrichedPoint, SegmentLabel, SegmentPlan } from "@/lib/types";
 
@@ -74,50 +75,6 @@ export interface MapViewProps {
   unit: SpeedUnit;
   tzOffsetMin: number | null;
   wind: { dirFromDeg: number | null; speedMps: number | null; quality: string | null } | null;
-}
-
-interface TrackProps {
-  id: string;
-  color: string;
-  /** the run the rider picked: heaviest line, halo, everything else greyed */
-  selected: boolean;
-  /** the longest confirmed downwind run, marked passively on load */
-  highlight: boolean;
-  /** either of the above — this is what gets the halo */
-  focus: boolean;
-  /** something else is selected, so this segment steps back */
-  dim: boolean;
-}
-
-type LineFeature = {
-  type: "Feature";
-  geometry: { type: "LineString"; coordinates: [number, number][] };
-  properties: TrackProps;
-};
-
-function buildTrackFeatures(points: EnrichedPoint[], plan: SegmentPlan): LineFeature[] {
-  const features: LineFeature[] = [];
-  for (const seg of plan.segments) {
-    const from = Math.max(0, seg.startIdx);
-    const to = Math.min(points.length - 1, seg.endIdx);
-    if (to < from) continue;
-    const coordinates: [number, number][] = [];
-    for (let i = from; i <= to; i++) coordinates.push([points[i].lon, points[i].lat]);
-    if (coordinates.length < 2) continue;
-    features.push({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates },
-      properties: {
-        id: seg.id,
-        color: segmentColor(effectiveLabel(seg)),
-        selected: false,
-        highlight: false,
-        focus: false,
-        dim: false,
-      },
-    });
-  }
-  return features;
 }
 
 function segmentIdAt(plan: SegmentPlan, idx: number): string | null {
@@ -220,17 +177,10 @@ export default function MapView(props: MapViewProps) {
 
   /* ------------------------------------------------------------------ derived */
 
-  const features = useMemo(() => {
-    return buildTrackFeatures(points, plan).map((f) => {
-      const selected = selectedId != null && f.properties.id === selectedId;
-      const highlight = highlightId != null && f.properties.id === highlightId;
-      const focus = selected || highlight;
-      // Only a deliberate selection greys out the rest; the passive "longest run" mark on load
-      // should not repaint the whole map.
-      const dim = selectedId != null && !focus;
-      return { ...f, properties: { ...f.properties, selected, highlight, focus, dim } };
-    });
-  }, [points, plan, selectedId, highlightId]);
+  const features = useMemo(
+    () => resolveTrackEmphasis(buildTrackFeatures(points, plan), selectedId, highlightId),
+    [points, plan, selectedId, highlightId],
+  );
 
   const focusFeatures = useMemo(() => features.filter((f) => f.properties.focus), [features]);
 
