@@ -28,6 +28,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { smoothedSpeeds } from "@/lib/metrics";
 import {
   convertSpeed,
   formatDuration,
@@ -64,12 +65,17 @@ function downsample(points: EnrichedPoint[], maxPoints = 1400): number[] {
 export function buildChartData(points: EnrichedPoint[], maxPoints = 1400): ChartDatum[] {
   if (points.length === 0) return [];
   const t0 = points[0].t;
+  // The profile plots the *smoothed* speed, the same quantity the session maximum quotes. Plotting
+  // the raw logged speed put a 46 kn GPS spike on a chart whose own headline read "max 23.8 kn,
+  // 3 s smoothed" — one session apparently disagreeing with itself — and the spike squashed the
+  // real riding into the bottom quarter of the axis.
+  const smoothed = smoothedSpeeds(points);
   return downsample(points, maxPoints).map((i) => {
     const p = points[i];
     return {
       i,
       x: (p.t - t0) / 1000,
-      speed: p.gap ? null : p.speed,
+      speed: smoothed[i],
       vmgUp: p.vmgUpMps,
       vmgDown: p.vmgDownMps,
       twa: p.twa,
@@ -85,9 +91,6 @@ const axisStroke = "#b5b0a3";
 /** Series colours, matched to the segment colours so a line and its label agree. */
 const SPEED_COLOR = "#121211";
 const VMG_UP_COLOR = "#14a45c";
-/** the along-wind component: not VMG, which is an upwind measure */
-const ALONG_WIND_COLOR = "#e0763a";
-const TWA_COLOR = "#cbc7bc";
 const WIND_COLOR = "#0f7c7c";
 const GUST_COLOR = "#e0763a";
 
@@ -195,29 +198,10 @@ export function SpeedProfileChart({
             stroke={axisStroke}
             tickLine={false}
             width={46}
+            domain={[0, "auto"]}
             tickFormatter={(v: number) => `${Math.round(v)}`}
           />
-          <YAxis
-            yAxisId="twa"
-            orientation="right"
-            domain={[0, 180]}
-            stroke={axisStroke}
-            tickLine={false}
-            width={30}
-            tickFormatter={(v: number) => `${v}°`}
-          />
           <Tooltip content={<ChartTooltip unit={unit} />} />
-          <Line
-            yAxisId="twa"
-            type="monotone"
-            dataKey="twa"
-            name="TWA"
-            stroke={TWA_COLOR}
-            strokeWidth={1}
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
           <Line
             yAxisId="speed"
             type="monotone"
@@ -225,28 +209,6 @@ export function SpeedProfileChart({
             name="Speed"
             stroke={SPEED_COLOR}
             strokeWidth={2}
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-          <Line
-            yAxisId="speed"
-            type="monotone"
-            dataKey="vmgUp"
-            name="VMG upwind"
-            stroke={VMG_UP_COLOR}
-            strokeWidth={1.8}
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-          <Line
-            yAxisId="speed"
-            type="monotone"
-            dataKey="vmgDown"
-            name="Along-wind"
-            stroke={ALONG_WIND_COLOR}
-            strokeWidth={1.8}
             dot={false}
             connectNulls={false}
             isAnimationActive={false}

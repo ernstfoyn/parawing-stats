@@ -32,7 +32,7 @@ export function detectFormat(fileName: string, bytes: ArrayBuffer): ActivityForm
   if (head.startsWith("<?xml") || head.startsWith("<gpx")) return "gpx";
   throw new ImportError(
     `Unsupported file type: ${fileName}`,
-    "Foil Analyzer reads Garmin/Strava .fit files and .gpx tracks. Export your activity as one of those.",
+    "Parawing stats reads Garmin/Strava .fit files and .gpx tracks. Export your activity as one of those.",
   );
 }
 

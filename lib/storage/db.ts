@@ -9,6 +9,13 @@
  * the rider can edit) means a segment relabel rewrites a few kilobytes instead of megabytes.
  */
 
+/**
+ * Storage identifiers, deliberately frozen at their original value.
+ *
+ * These are not the product name: they are the keys of data already sitting in the rider's browser.
+ * Renaming the database would make every session they have imported look deleted, so it only changes
+ * alongside a migration that carries the old data across.
+ */
 const DB_NAME = "foil-analyzer";
 const DB_VERSION = 1;
 

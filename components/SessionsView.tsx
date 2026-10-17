@@ -121,7 +121,7 @@ export default function SessionsView() {
       <header className="mb-8">
         <div className="mono mb-3 flex items-center gap-2 text-[0.62rem] uppercase tracking-[0.18em] text-grey">
           <span className="inline-block size-2 bg-signal" />
-          Foil Analyzer
+          Parawing stats
           <span className="text-quiet">/</span>
           Local only
         </div>
@@ -130,8 +130,8 @@ export default function SessionsView() {
         </h1>
         <p className="mono mt-4 max-w-2xl text-[0.72rem] leading-relaxed text-graphite">
           Import a Garmin or Strava <span className="bg-sunk px-1">.fit</span> or{" "}
-          <span className="bg-sunk px-1">.gpx</span> file and read your upwind and downwind VMG, the
-          wind you rode in, and every downwind run — all stored in your own browser.
+          <span className="bg-sunk px-1">.gpx</span> file and read your upwind VMG, the wind
+          you rode in, and every downwind run — all stored in your own browser.
         </p>
       </header>
 

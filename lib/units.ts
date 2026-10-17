@@ -188,3 +188,23 @@ export function formatOffset(offsetMin: number | null): string {
   const abs = Math.abs(offsetMin);
   return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Band width and ceiling for a "time at speed" distribution, in m/s, for a display unit.
+ *
+ * Chosen so the band edges land on round numbers *in the unit the rider is reading*: 2 knots,
+ * 1 m/s or 4 km/h. Using the storage unit (m/s) directly would print bands like "11.7–13.6 kn",
+ * which looks like an arbitrary cut even though the arithmetic is the same. Every width is an exact
+ * multiple of the unit, so converting an edge back for its label is lossless.
+ */
+export function speedBandSpec(unit: SpeedUnit): { widthMps: number; maxMps: number } {
+  if (unit === "kn") return { widthMps: 2 / MPS_TO_KNOTS, maxMps: 42 / MPS_TO_KNOTS };
+  if (unit === "kmh") return { widthMps: 4 / MPS_TO_KMH, maxMps: 76 / MPS_TO_KMH };
+  return { widthMps: 1, maxMps: 20 };
+}
+
+/** A band edge in the displayed unit, e.g. 12 for the 12–14 kn band. Exact by construction. */
+export function formatBandEdge(edgeMps: number, unit: SpeedUnit): string {
+  const perUnit = unit === "kn" ? MPS_TO_KNOTS : unit === "kmh" ? MPS_TO_KMH : 1;
+  return (edgeMps * perUnit).toFixed(0);
+}

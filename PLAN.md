@@ -1,4 +1,4 @@
-# Foil Analyzer — implementation plan
+# Parawing stats — implementation plan
 
 ## Architecture decision: TypeScript-only, local-first
 

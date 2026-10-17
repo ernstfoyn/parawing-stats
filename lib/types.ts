@@ -1,5 +1,5 @@
 /**
- * Core domain types for Foil Analyzer.
+ * Core domain types for Parawing stats.
  *
  * Conventions used everywhere in the codebase:
  *  - Distances are metres, speeds are m/s, times are epoch milliseconds (UTC).

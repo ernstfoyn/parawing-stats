@@ -135,7 +135,7 @@ export function parseGpx(text: string, fileName = "activity.gpx"): ParsedActivit
   if (samples.length === 0) {
     throw new ImportError(
       "No track point in this GPX file has both a position and a timestamp.",
-      "Foil Analyzer needs time-stamped positions to compute speeds and wind angles.",
+      "Parawing stats needs time-stamped positions to compute speeds and wind angles.",
     );
   }
 

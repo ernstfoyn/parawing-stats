@@ -1,4 +1,4 @@
-# Foil Analyzer
+# Parawing stats
 
 Personal foiling analytics for parawing / wingfoil / downwind sessions recorded on a Garmin watch
 (or anything that exports `.fit` / `.gpx`). Import a file, get the track on a map, the wind you

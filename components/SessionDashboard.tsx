@@ -8,9 +8,11 @@
  * relabel or a wind change recalculates the map, the charts, the run lists, the best windows and
  * every statistic in one pass — no re-parsing, no network, no flicker.
  *
- * The panels are ordered by what the rider is actually here to find out: the track and the two
- * run lists first, then how far and how long they went downwind, and only then the wind, the
- * session totals, the charts, the segment editor and the paperwork.
+ * The panels are ordered by what the rider is actually here to find out: the session and the
+ * downwind headline first, then the map with its two run lists, then the wind that every one of
+ * those numbers is measured against, then the supporting views, the segment editor and the
+ * paperwork. A rider trimmed this order twice, so it is not arbitrary: the numbers, then where they
+ * happened, then where the wind came from.
  */
 
 import Link from "next/link";
@@ -24,8 +26,10 @@ import {
   sessionCentroid,
   updateSessionMeta,
 } from "@/lib/storage/sessions";
+import { speedBandsInRanges } from "@/lib/metrics";
 import { describeVmgBasis, downwindRuns, upwindRuns } from "@/lib/summary";
 import {
+  formatBandEdge,
   formatDateInOffset,
   formatDistance,
   formatDuration,
@@ -34,6 +38,7 @@ import {
   formatSpeed,
   formatTimeInOffset,
   SPEED_UNIT_LABEL,
+  speedBandSpec,
   type SpeedUnit,
 } from "@/lib/units";
 import type { EnrichedPoint, EquipmentProfile, SessionRecord, WindModel, WindSample } from "@/lib/types";
@@ -44,10 +49,10 @@ import MapView from "./MapView";
 import RunDetail from "./RunDetail";
 import RunsTable from "./RunsTable";
 import SegmentTimeline from "./SegmentTimeline";
-import SpeedBands from "./SpeedBands";
 import WindPanel from "./WindPanel";
 import { Chip, Note, Panel, SegmentedControl, Stat } from "./ui";
 
+/** A storage key, not the product name — see the note on DB_NAME in lib/storage/db.ts. */
 const UNIT_KEY = "foil-analyzer:speed-unit";
 
 function readStoredUnit(): SpeedUnit {
@@ -120,6 +125,20 @@ export default function SessionDashboard({
 
   /** Without a wind direction there is no upwind and no downwind, so nothing can be classified. */
   const needsWind = wind.kind === "none";
+
+  /**
+   * The single band where most of the downwind time went. This is the one number that answers "how
+   * long at which speed" without a whole panel of histogram and table: the banding is the same
+   * exact, time-weighted walk over the runs, so it can never disagree with them.
+   */
+  const peakBand = useMemo(() => {
+    if (dwRanges.length === 0) return null;
+    const spec = speedBandSpec(unit);
+    const bands = speedBandsInRanges(analysis.points, dwRanges, spec.widthMps, spec.maxMps);
+    let best: (typeof bands)[number] | null = null;
+    for (const b of bands) if (b.timeS > 0 && (best == null || b.timeS > best.timeS)) best = b;
+    return best;
+  }, [analysis.points, dwRanges, unit]);
 
   /**
    * Send the rider to the one thing that is missing. The wind panel searches for stations on its
@@ -423,6 +442,18 @@ export default function SessionDashboard({
             )}
           </div>
 
+          {!needsWind && dwKr.count > 0 && peakBand && (
+            <p className="mt-3 text-[0.72rem] leading-relaxed text-graphite">
+              Most of that time went between{" "}
+              <span className="mono font-bold text-ink">
+                {formatBandEdge(peakBand.fromMps, unit)}–{formatBandEdge(peakBand.toMps, unit)}{" "}
+                {SPEED_UNIT_LABEL[unit]}
+              </span>{" "}
+              — {formatDuration(peakBand.timeS)}, {Math.round(peakBand.share * 100)}% of the downwind
+              time.
+            </p>
+          )}
+
           {!needsWind && (
             <div className="mt-4">
               <Note>
@@ -524,37 +555,10 @@ export default function SessionDashboard({
           )}
         </Panel>
 
-        {/* -------------------------------------------------------------- downwind */}
-        <Panel
-          index="03"
-          kicker="Downwind"
-          title="How long you spent at which speed, going downwind"
-          subtitle="This is where your downwind time actually went, banded on round numbers in the unit you are reading. It covers the runs only — the ones counted in the session summary above."
-        >
-          {needsWind ? (
-            <div className="space-y-3">
-              <p className="text-[0.76rem] leading-relaxed text-grey">
-                There is no wind direction, so no stretch can be called downwind and there is nothing
-                to distribute yet — a run and a beat are the same stretch of water without one. Set a
-                wind source and this fills in at once.
-              </p>
-              <NeedsWind onFind={goToWind} />
-            </div>
-          ) : dwKr.count === 0 ? (
-            <p className="text-[0.76rem] leading-relaxed text-grey">
-              Wind is set, but no stretch on this track ran deep enough to count as a downwind run
-              yet, so there is no speed distribution to show. Label a block in the segment timeline
-              below and it appears immediately.
-            </p>
-          ) : (
-            <SpeedBands points={analysis.points} ranges={dwRanges} unit={unit} />
-          )}
-        </Panel>
-
         {/* ------------------------------------------------------------------ wind */}
         <Panel
           id="panel-wind"
-          index="04"
+          index="03"
           kicker="Wind"
           title={needsWind ? "Set the wind — this is what the analysis needs" : "Where the wind came from"}
           subtitle="Every upwind/downwind number in this app is measured against this wind, and it is estimated at your position from a station or a model — never a measurement of the conditions you actually rode in."
@@ -573,7 +577,7 @@ export default function SessionDashboard({
 
         {/* ---------------------------------------------------------- best efforts */}
         <Panel
-          index="05"
+          index="04"
           kicker="Best efforts"
           title="Best windows"
           subtitle="The fastest one, two and three minute windows, with the best upwind VMG and along-wind speed in each. Bars are comparable down a column."
@@ -592,10 +596,10 @@ export default function SessionDashboard({
 
         {/* ---------------------------------------------------------------- charts */}
         <Panel
-          index="06"
+          index="05"
           kicker="Speed"
           title="The session as a curve"
-          subtitle="One time axis: your speed, your upwind VMG, and the along-wind part of your speed that carried you away from the wind — which is not VMG — with true wind angle faint behind."
+          subtitle="Your speed over the whole session on the real time axis. Hover it to see where you were, or read the time-at-speed below, which is the same data as a distribution."
         >
           <SpeedProfileChart
             data={chartData}
@@ -617,7 +621,7 @@ export default function SessionDashboard({
 
         {/* -------------------------------------------------------------- timeline */}
         <Panel
-          index="07"
+          index="06"
           kicker="Segments"
           title="Every block of the session"
           subtitle="The whole session as a timeline — this is where a label gets corrected. Click a block to edit it; the classifier's estimate stays open until you decide."
@@ -690,7 +694,7 @@ function DataQuality({ record, points }: { record: SessionRecord; points: Enrich
 
   return (
     <Panel
-      index="09"
+      index="08"
       kicker="Data quality"
       title="What the importer kept and threw away"
       subtitle="Nothing is filled in or interpolated into existence."

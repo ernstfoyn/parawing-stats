@@ -25,7 +25,6 @@ import type { WindSummary } from "@/lib/wind/align";
 import { manualSamples } from "@/lib/wind/align";
 import { describeWindSource } from "@/lib/summary";
 import {
-  compassPoint,
   formatDirection,
   formatDuration,
   formatSpeed,
@@ -175,6 +174,25 @@ export default function WindPanel({
   const hasWind = wind.kind !== "none";
 
   /**
+   * The name of the source, without the provider prefixed to it.
+   *
+   * `describeWindSource` reads "MET Norway Frost · GULLHOLMEN", which is the right sentence for a
+   * caption and the wrong thing to put in a stat cell: it overflows the column and collides with the
+   * mean wind beside it. The station is what the rider recognises, so the station is the value and
+   * the provider becomes the hint.
+   */
+  const usedName = wind.kind === "manual" ? "Manual wind" : (wind.station?.name ?? describeWindSource(wind));
+  const usedHint =
+    wind.kind === "manual"
+      ? "your own number, constant for the session"
+      : [
+          wind.station ? providerById(wind.kind)?.name : describeWindSource(wind),
+          wind.station?.distanceKm != null ? `${wind.station.distanceKm.toFixed(1)} km from the track centre` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || undefined;
+
+  /**
    * Find the candidate stations before the rider has to ask for them.
    *
    * A freshly imported file has no wind, and until one is set the whole session is unclassified —
@@ -199,15 +217,9 @@ export default function WindPanel({
       <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
         <Stat
           label="Wind now used"
-          value={describeWindSource(wind)}
+          value={usedName}
           small
-          hint={
-            wind.station?.distanceKm != null
-              ? `${wind.station.distanceKm.toFixed(1)} km from the track centre`
-              : wind.kind === "manual"
-                ? "constant for the whole session"
-                : undefined
-          }
+          hint={usedHint}
         />
         <Stat
           label="Mean wind"
@@ -217,6 +229,7 @@ export default function WindPanel({
               : `${formatSpeed(summary.avgSpeedMps, unit)} / ${summary.avgSpeedMps.toFixed(1)}`
           }
           unit={`${SPEED_UNIT_LABEL[unit]} / m/s`}
+          hint={summary.avgSpeedMps == null ? "no observation landed on the track" : undefined}
         />
         <Stat
           label="Mean direction"
@@ -227,7 +240,10 @@ export default function WindPanel({
         <Stat
           label="Peak gust"
           value={formatSpeed(summary.maxGustMps, unit)}
-          unit={SPEED_UNIT_LABEL[unit]}
+          // A dash with a unit next to it reads as a broken measurement. Say why it is missing.
+          unit={summary.maxGustMps == null ? undefined : SPEED_UNIT_LABEL[unit]}
+          small
+          hint={summary.maxGustMps == null ? "this source reported no gusts" : undefined}
         />
       </div>
 
@@ -404,9 +420,11 @@ export default function WindPanel({
 
           {!searching && stations.length === 0 && !searchError && (
             <p className="mt-2 text-[0.7rem] text-grey">
-              {providerById(activeProvider)?.available === "yes"
-                ? "Press search to look for stations with wind for this session."
-                : "This source cannot supply historical wind; use Frost or manual entry."}
+              {providerById(activeProvider)?.available !== "yes"
+                ? "This source cannot supply historical wind; use Frost or manual entry."
+                : hasWind
+                  ? "No stations looked up in this session yet — search to see what else is nearby, or keep the station already in use."
+                  : "Press search to look for stations with wind for this session."}
             </p>
           )}
         </div>
@@ -458,7 +476,7 @@ export default function WindPanel({
 
       {/* ------------------------------------------------------------------ clear */}
       {hasWind && (
-        <div className="border-t border-rule pt-4">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-rule pt-3">
           <button
             type="button"
             className="btn btn-ghost"
@@ -466,9 +484,9 @@ export default function WindPanel({
           >
             Remove wind data
           </button>
-          <p className="mt-1 text-[0.66rem] text-grey">
-            Without wind there is no TWA, VMG or downwind classification — but nothing is guessed
-            either.
+          <p className="text-[0.66rem] text-grey">
+            Without wind there is no TWA, no upwind VMG and no downwind classification — but nothing is
+            guessed either.
           </p>
         </div>
       )}
@@ -478,16 +496,6 @@ export default function WindPanel({
           title="No position to search from"
           body="This file has no usable GPS positions, so there is nowhere to look up wind. You can still enter it manually."
         />
-      )}
-      {wind.manual && (
-        <p className="mono text-[0.66rem] text-grey">
-          Current manual wind: {compassPoint(wind.manual.dirFromDeg)} {Math.round(wind.manual.dirFromDeg)}
-          °, {formatSpeed(wind.manual.speedMps, unit)} {SPEED_UNIT_LABEL[unit]}
-          {wind.manual.gustMps != null
-            ? `, gusts ${formatSpeed(wind.manual.gustMps, unit)} ${SPEED_UNIT_LABEL[unit]}`
-            : ""}
-          .
-        </p>
       )}
     </div>
   );

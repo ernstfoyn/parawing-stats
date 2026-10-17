@@ -8,10 +8,10 @@ import "@fontsource/space-mono/700.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Foil Analyzer",
+  title: "Parawing stats",
   description:
-    "Privacy-first parawing and wingfoil session analysis: GPS tracks, wind, upwind and downwind VMG, and downwind surf segments.",
-  applicationName: "Foil Analyzer",
+    "Privacy-first parawing and wingfoil session analysis: GPS tracks, wind, upwind VMG, and every downwind run.",
+  applicationName: "Parawing stats",
 };
 
 export const viewport: Viewport = {
