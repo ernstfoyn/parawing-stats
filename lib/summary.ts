@@ -72,7 +72,7 @@ export function describeVmgBasis(
 export const SEGMENT_LABEL_TEXT: Record<SegmentLabel, string> = {
   upwind: "Upwind",
   reaching: "Reaching",
-  idle: "Idle",
+  idle: "Not sailing",
   powered_downwind: "Powered reach",
   free_downwind: "Downwind",
   unclassified: "Unclassified",
@@ -84,13 +84,13 @@ export const SEGMENT_LABEL_HINT: Record<SegmentLabel, string> = {
   upwind: "Working towards the wind, parawing flying.",
   reaching: "Beam or broad reach, neither clearly up nor down.",
   idle:
-    "Not sailing: measured under 2 m/s (about 4 kn) — drifting, pumping out or stopped. Time the watch did not record is never counted here.",
+    "Judged over the whole stretch: everything measured in it was under 2 m/s (about 4 kn) — drifting, pumping out, or stopped. It is not a claim that you were standing still, and time the watch did not record never lands here.",
   powered_downwind:
     "Wing still flying and carrying you down from the wind. A broad reach, not a downwind run.",
   free_downwind:
     "Parawing packed down on a wave, riding swell. This is the downwind run, and the only thing counted as one.",
   unclassified:
-    "We cannot say: either no wind direction to judge the course by, or a stretch the watch did not record. Both mean unmeasured, not idle.",
+    "We cannot judge it: there is no wind direction to compare the course against. A hole in the recording is not this — a dropout takes the label of the stretch it fell inside.",
   excluded: "Ignore this part of the track in the statistics.",
 };
 

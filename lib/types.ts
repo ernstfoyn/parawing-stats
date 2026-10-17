@@ -288,13 +288,25 @@ export interface SegmentPlan {
 export interface SegmentStats {
   count: number;
   distanceM: number;
+  /** elapsed seconds across the stretches, which includes any holes in the recording */
   durationS: number;
+  /**
+   * Seconds of `durationS` the watch did not record.
+   *
+   * Carried so the headline can say so. A dropout sits inside the stretch it fell in, because the
+   * positions either side are plainly the same ride — so the time counts, as it does in Strava, and
+   * the honest thing is to state how much of it was never measured.
+   */
+  gapS: number;
+  /** elapsed seconds that *were* recorded: what any speed figure is really based on */
+  measuredS: number;
   avgSpeedMps: number;
   maxSpeedMps: number;
   avgVmgDownMps: number | null;
   longest: {
     distanceM: number;
     durationS: number;
+    gapS: number;
     avgSpeedMps: number;
     maxSpeedMps: number;
     startIdx: number;

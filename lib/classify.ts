@@ -122,21 +122,91 @@ interface Run {
   state: PointState;
 }
 
+/**
+ * Seconds of a run the watch actually recorded.
+ *
+ * Deliberately *not* the elapsed span: a hole in the middle makes a stretch look long without
+ * anything having been measured, and this number decides which neighbour absorbs a short run. With
+ * elapsed time a three-minute idle drift containing a two-minute dropout measured longer than the
+ * 47 s of real riding next to it, won the comparison, and swallowed it — so fast riding came out
+ * labelled idle, measured at 7 m/s. Recorded time gives the riding its own run, and leaves a
+ * mostly-empty run with a duration of nearly nothing, which is the truth about it.
+ */
 function runDurationS(run: Run, points: readonly EnrichedPoint[]): number {
-  return (points[run.end].t - points[run.start].t) / 1000;
+  let recorded = 0;
+  for (let i = run.start + 1; i <= run.end; i++) {
+    if (points[i].gap) continue;
+    recorded += (points[i].t - points[i - 1].t) / 1000;
+  }
+  return recorded;
+}
+
+/**
+ * The state of every point, with dropouts bridged rather than given a state of their own.
+ *
+ * A gap is a hole in the file, not something the rider did. Reading it as its own category put a
+ * grey block in the middle of a ride that never stopped — a rider saw exactly that and asked why
+ * the app was calling their track idle between two places they were plainly moving. Strava and the
+ * rider's own reading of the file both treat the activity as continuous, and they are right: the
+ * positions either side are a few hundred metres apart and obviously the same ride.
+ *
+ * So a point with no recording takes the state of the last point that *was* recorded. A hole can no
+ * longer break a stretch in two, and it can no longer become idle, which is the claim that was
+ * actually wrong. What was not measured is reported separately, and honestly: `gapS` on the stretch,
+ * and the count and total in the data-quality panel.
+ */
+function pointStates(points: readonly EnrichedPoint[], opts: ClassifyOptions): PointState[] {
+  const states: PointState[] = new Array(points.length);
+  let carried: PointState = "unclassified";
+  // A leading dropout has nothing behind it to carry, so seed from the first recorded point.
+  if (points.length > 0) {
+    const first = points.findIndex((p) => !p.gap);
+    if (first >= 0) carried = pointState(points[first], opts);
+    else if (points.length > 0) carried = "unclassified";
+  }
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    if (!p.gap) carried = pointState(p, opts);
+    states[i] = carried;
+  }
+  return states;
+}
+
+/**
+ * The sailing state of a whole stretch, judged from everything measured across it.
+ *
+ * Not from the state of its first fix, which is what the run carries out of `buildRuns`. Those are
+ * different things, and confusing them produced stretches that were plainly riding and labelled
+ * idle: a segment covering 362 m in two and a half minutes at a measured 2.4 m/s came out "idle"
+ * because one slow sample sat at its head, and because a hole in the middle had made the stretch look
+ * longer than the riding beside it, so the smoothing let it swallow that riding.
+ *
+ * Judging the run as a whole fixes both readings at once, and it is the only defensible definition:
+ * a stretch is idle when what was *measured* in it was slow.
+ */
+function stateForRun(features: SegmentFeatures, opts: ClassifyOptions): PointState {
+  const measuredS = features.durationS - features.gapS;
+  // Bridged runs made only of a hole have nothing measured in them to judge, and a straight line
+  // across a hole is not evidence of speed.
+  if (measuredS <= 0) return "unclassified";
+  if (features.avgSpeedMps < opts.minSpeedMps) return "idle";
+  if (!Number.isFinite(features.avgTwaDeg)) return "unclassified";
+  if (features.avgTwaDeg >= opts.downwindTwaMin) return "downwind";
+  if (features.avgTwaDeg <= opts.upwindTwaMax) return "upwind";
+  return "reaching";
 }
 
 function buildRuns(points: readonly EnrichedPoint[], opts: ClassifyOptions): Run[] {
   const runs: Run[] = [];
   if (points.length === 0) return runs;
-  let current: Run = { start: 0, end: 0, state: pointState(points[0], opts) };
+  const states = pointStates(points, opts);
+  let current: Run = { start: 0, end: 0, state: states[0] };
   for (let i = 1; i < points.length; i++) {
-    const s = pointState(points[i], opts);
-    if (s === current.state) {
+    if (states[i] === current.state) {
       current.end = i;
     } else {
       runs.push(current);
-      current = { start: i, end: i, state: s };
+      current = { start: i, end: i, state: states[i] };
     }
   }
   runs.push(current);
@@ -240,13 +310,15 @@ export function segmentFeatures(
       speedWeight += iv.dt;
       if (maxSpeed == null || speed > maxSpeed) maxSpeed = speed;
     }
-    const twa = iv.mid((p) => p.twa);
+    // A course across a hole is a straight line between two fixes, and a wind angle built on it is
+    // a guess about a path nobody recorded. Only measurements are allowed to characterise a stretch.
+    const twa = iv.mid((p) => (p.gap ? null : p.twa));
     if (twa != null) {
       twaWeighted += twa * iv.dt;
       twaWeight += iv.dt;
       if (twa >= 150) deadRun += iv.dt;
     }
-    const vmg = iv.mid((p) => p.vmgDownMps);
+    const vmg = iv.mid((p) => (p.gap ? null : p.vmgDownMps));
     if (vmg != null) {
       vmgWeighted += vmg * iv.dt;
       vmgWeight += iv.dt;
@@ -389,27 +461,28 @@ export function buildSegmentPlan(
   for (const run of runs) {
     if (run.end < run.start) continue;
     const features = segmentFeatures(points, run.start, run.end);
-    let label = STATE_TO_LABEL[run.state];
+    const state = stateForRun(features, opts);
+    let label = STATE_TO_LABEL[state];
     let confidence = 0.9;
     let reasons: string[] = [];
 
-    if (run.state === "downwind") {
+    if (state === "downwind") {
       const guess = scoreDownwindKind(features, refSpeed, windCoverage);
       label = guess.label;
       confidence = guess.confidence;
       reasons = guess.reasons;
-    } else if (run.state === "idle") {
+    } else if (state === "idle") {
       confidence = 0.85;
       reasons = [`Average speed ${features.avgSpeedMps.toFixed(1)} m/s — below the sailing threshold.`];
-    } else if (run.state === "unclassified") {
+    } else if (state === "unclassified") {
       confidence = 0.3;
       reasons = ["No wind direction available, so this part of the track cannot be classified."];
     } else {
       const twaText = Number.isFinite(features.avgTwaDeg)
         ? `Mean TWA ${Math.round(features.avgTwaDeg)}°`
         : "No wind data";
-      confidence = run.state === "upwind" ? 0.9 : 0.7;
-      reasons = [`${twaText} — ${run.state === "upwind" ? "sailing towards the wind" : "beam reach"}.`];
+      confidence = state === "upwind" ? 0.9 : 0.7;
+      reasons = [`${twaText} — ${state === "upwind" ? "sailing towards the wind" : "beam reach"}.`];
     }
 
     segments.push({
@@ -716,6 +789,8 @@ function statsFor(segments: readonly Segment[]): SegmentStats {
       count: 0,
       distanceM: 0,
       durationS: 0,
+      gapS: 0,
+      measuredS: 0,
       avgSpeedMps: 0,
       maxSpeedMps: 0,
       avgVmgDownMps: null,
@@ -725,6 +800,7 @@ function statsFor(segments: readonly Segment[]): SegmentStats {
 
   let distanceM = 0;
   let durationS = 0;
+  let gapS = 0;
   let maxSpeedMps = 0;
   let longest: SegmentStats["longest"] = null;
   let vmgWeighted = 0;
@@ -734,6 +810,7 @@ function statsFor(segments: readonly Segment[]): SegmentStats {
     const f = s.features;
     distanceM += f.distanceM;
     durationS += f.durationS;
+    gapS += f.gapS;
     if (f.maxSpeedMps > maxSpeedMps) maxSpeedMps = f.maxSpeedMps;
     if (f.durationS > 0) {
       vmgWeighted += f.avgVmgDownMps * f.durationS;
@@ -746,6 +823,7 @@ function statsFor(segments: readonly Segment[]): SegmentStats {
         endIdx: s.endIdx,
         distanceM: f.distanceM,
         durationS: f.durationS,
+        gapS: f.gapS,
         avgSpeedMps: f.avgSpeedMps,
         maxSpeedMps: f.maxSpeedMps,
       };
@@ -756,6 +834,8 @@ function statsFor(segments: readonly Segment[]): SegmentStats {
     count: segments.length,
     distanceM,
     durationS,
+    gapS,
+    measuredS: durationS - gapS,
     avgSpeedMps: durationS > 0 ? distanceM / durationS : 0,
     maxSpeedMps,
     avgVmgDownMps: vmgWeight > 0 ? vmgWeighted / vmgWeight : null,

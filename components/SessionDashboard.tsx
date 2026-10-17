@@ -397,7 +397,11 @@ export default function SessionDashboard({
                 <Stat
                   label="Downwind time"
                   value={formatDuration(dwKr.durationS)}
-                  hint={formatDurationLong(dwKr.durationS)}
+                  hint={
+                    dwKr.gapS > 0
+                      ? `${formatDuration(dwKr.gapS)} of it not recorded`
+                      : formatDurationLong(dwKr.durationS)
+                  }
                 />
                 <Stat
                   label="Runs"
