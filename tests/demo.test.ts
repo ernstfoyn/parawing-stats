@@ -82,7 +82,7 @@ describe("demo analysis", () => {
   });
 
   it("suggests downwind segments and marks them as estimates", () => {
-    const stats = result.dw.all;
+    const stats = result.dw.downwind;
     expect(stats.count).toBeGreaterThanOrEqual(3);
     expect(stats.distanceM).toBeGreaterThan(3000);
     expect(stats.longest!.distanceM).toBeGreaterThan(500);
@@ -135,10 +135,10 @@ describe("demo analysis", () => {
     });
     expect(noWind.wind.coverage).toBe(0);
     expect(noWind.downwind.avgVmgMps).toBeNull();
-    expect(noWind.dw.all.count).toBe(0);
+    expect(noWind.dw.downwind.count).toBe(0);
     const labelsWithoutWind = new Set(noWind.plan.segments.map((s) => effectiveLabel(s)));
     expect([...labelsWithoutWind].every((l) => l === "unclassified" || l === "idle")).toBe(true);
-    expect(downwindStats(noWind.plan).all.longest).toBeNull();
+    expect(downwindStats(noWind.plan).downwind.longest).toBeNull();
     // The GPS metrics are unaffected by missing wind.
     expect(noWind.metrics.distanceM).toBeCloseTo(result.metrics.distanceM, 6);
   });
@@ -154,7 +154,7 @@ describe("demo analysis", () => {
       windModel: demo.windModel,
       plan: edited,
     });
-    expect(reanalysed.dw.all.count).toBe(0);
+    expect(reanalysed.dw.downwind.count).toBe(0);
     expect(reanalysed.plan.segments.every((s) => effectiveLabel(s) === "excluded")).toBe(true);
   });
 

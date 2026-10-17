@@ -6,7 +6,7 @@
  * must not change the reported averages, and the time-weighted helpers below guarantee that.
  */
 
-import { circularMeanDeg, circularSpread, percentile } from "./geo";
+import { angleDelta, circularMeanDeg, circularSpread, percentile } from "./geo";
 import type {
   DirectionStats,
   EnrichedPoint,
@@ -150,6 +150,65 @@ export function speedHistogram(
   return buckets;
 }
 
+/** One band of a time-at-speed breakdown: how long, and how far, at this speed. */
+export interface SpeedBand extends HistogramBucket {
+  /** metres covered while in this band */
+  distanceM: number;
+  /** this band's share of the total time in the breakdown, 0..1 */
+  share: number;
+}
+
+/** A run of samples to include in a breakdown: `startIdx`..`endIdx`, both inclusive. */
+export interface IndexRange {
+  startIdx: number;
+  endIdx: number;
+}
+
+/**
+ * Time and distance spent at each speed, restricted to a set of index ranges.
+ *
+ * This is what answers "how long did I ride at which speed, while going downwind": the ranges are
+ * the downwind runs, and the walk must never bridge the gap between two of them — doing so would
+ * invent a downwind interval that never happened. Interval handling (trapezoidal values, moving
+ * filter, gaps dropped) matches the rest of the metrics, so the bands always sum to the same total
+ * the run table reports.
+ */
+export function speedBandsInRanges(
+  points: readonly EnrichedPoint[],
+  ranges: readonly IndexRange[],
+  bandWidthMps = 1,
+  maxMps = 20,
+): SpeedBand[] {
+  const width = bandWidthMps > 0 ? bandWidthMps : 1;
+  const count = Math.max(1, Math.ceil(maxMps / width));
+  const bands: SpeedBand[] = Array.from({ length: count }, (_, i) => ({
+    fromMps: i * width,
+    toMps: (i + 1) * width,
+    timeS: 0,
+    distanceM: 0,
+    share: 0,
+  }));
+
+  let totalTimeS = 0;
+  for (const range of ranges) {
+    // An interval is the pair (i-1, i), so the lowest index that can contribute is 1.
+    const from = Math.max(1, range.startIdx);
+    const to = Math.min(points.length - 1, range.endIdx);
+    for (let i = from; i <= to; i++) {
+      const iv = intervalAt(points, i);
+      if (!iv || !iv.to.moving) continue;
+      const v = iv.mid((p) => (p.gap ? null : p.speed));
+      if (v == null) continue;
+      const idx = Math.min(count - 1, Math.max(0, Math.floor(v / width)));
+      bands[idx].timeS += iv.dt;
+      bands[idx].distanceM += iv.dd;
+      totalTimeS += iv.dt;
+    }
+  }
+  if (totalTimeS > 0) for (const b of bands) b.share = b.timeS / totalTimeS;
+  return bands;
+}
+
 /** Histogram of time spent at each VMG value (metres per second). */
 export function vmgHistogram(
   points: readonly EnrichedPoint[],
@@ -274,4 +333,133 @@ export function headingStats(points: readonly EnrichedPoint[], from: number, to:
     meanHeadingDeg: circularMeanDeg(headings),
     spread: circularSpread(headings),
   };
+}
+
+/* ------------------------------------------------------- one stretch in detail */
+
+/** One slice of a single stretch of track, for the "zoom in on this run" view. */
+export interface StretchPart {
+  /** 1-based */
+  n: number;
+  startIdx: number;
+  endIdx: number;
+  startT: number;
+  endT: number;
+  durationS: number;
+  distanceM: number;
+  avgSpeedMps: number | null;
+  maxSpeedMps: number | null;
+  avgTwaDeg: number | null;
+  /**
+   * How much the course changed across this slice, in degrees, signed with `angleDelta`: positive
+   * means the rider turned to starboard. This is the honest answer to "how did I carve it" — the
+   * difference between the mean course at the start of the slice and the mean course at its end,
+   * taken the short way round the compass.
+   */
+  turnDeg: number | null;
+}
+
+/** Mean course over the first/last few headings of a range, so one noisy sample cannot define a turn. */
+function edgeHeading(
+  points: readonly EnrichedPoint[],
+  from: number,
+  to: number,
+  which: "first" | "last",
+  take = 3,
+): number | null {
+  const headings: number[] = [];
+  if (which === "first") {
+    for (let i = from; i <= to && headings.length < take; i++) {
+      const c = points[i].cog;
+      if (c != null) headings.push(c);
+    }
+  } else {
+    for (let i = to; i >= from && headings.length < take; i--) {
+      const c = points[i].cog;
+      if (c != null) headings.push(c);
+    }
+  }
+  return circularMeanDeg(headings);
+}
+
+/**
+ * Split one stretch of track into `parts` equal-duration slices.
+ *
+ * Equal *duration*, not equal distance and not equal sample count: a run that slowed to a crawl in
+ * the middle should not gain a slice just because the watch kept logging while the rider was parked
+ * on a swell.
+ */
+export function stretchParts(
+  points: readonly EnrichedPoint[],
+  startIdx: number,
+  endIdx: number,
+  parts: number,
+): StretchPart[] {
+  const from = Math.max(0, startIdx);
+  const to = Math.min(points.length - 1, endIdx);
+  if (to <= from || parts < 1) return [];
+  const t0 = points[from].t;
+  const span = points[to].t - t0;
+  if (span <= 0) return [];
+
+  // Boundary indices: the first sample at or after each equal-duration mark.
+  const bounds: number[] = [from];
+  for (let k = 1; k < parts; k++) {
+    const target = t0 + (span * k) / parts;
+    let i = bounds[k - 1];
+    while (i < to && points[i].t < target) i++;
+    bounds.push(Math.max(i, bounds[k - 1]));
+  }
+  bounds.push(to);
+
+  const out: StretchPart[] = [];
+  for (let k = 0; k < parts; k++) {
+    const a = bounds[k];
+    const b = bounds[k + 1];
+    if (b <= a) continue;
+
+    let timeS = 0;
+    let distanceM = 0;
+    let speedWeighted = 0;
+    let speedWeight = 0;
+    let maxSpeedMps: number | null = null;
+    const twas: number[] = [];
+
+    for (let i = a + 1; i <= b; i++) {
+      const iv = intervalAt(points, i);
+      if (!iv) continue;
+      timeS += iv.dt;
+      distanceM += iv.dd;
+      const v = iv.mid((p) => (p.gap ? null : p.speed));
+      if (v != null) {
+        speedWeighted += v * iv.dt;
+        speedWeight += iv.dt;
+      }
+      const twa = iv.mid((p) => p.twa);
+      if (twa != null) twas.push(twa);
+    }
+    for (let i = a; i <= b; i++) {
+      const s = points[i].speed;
+      if (s == null) continue;
+      maxSpeedMps = maxSpeedMps == null ? s : Math.max(maxSpeedMps, s);
+    }
+
+    const head = edgeHeading(points, a, b, "first");
+    const tail = edgeHeading(points, a, b, "last");
+
+    out.push({
+      n: out.length + 1,
+      startIdx: a,
+      endIdx: b,
+      startT: points[a].t,
+      endT: points[b].t,
+      durationS: timeS,
+      distanceM,
+      avgSpeedMps: speedWeight > 0 ? speedWeighted / speedWeight : null,
+      maxSpeedMps,
+      avgTwaDeg: circularMeanDeg(twas),
+      turnDeg: head != null && tail != null ? angleDelta(tail, head) : null,
+    });
+  }
+  return out;
 }

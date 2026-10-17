@@ -6,7 +6,7 @@
  * every manual segment edit and every wind-source change without re-parsing the file.
  */
 
-import { buildSegmentPlan, downwindStats, pointLabels, recomputePlanFeatures } from "./classify";
+import { buildSegmentPlan, downwindStats, pointLabels, recomputePlanFeatures, type DownwindBreakdown } from "./classify";
 import { computeSessionMetrics, directionStats } from "./metrics";
 import { alignWind, summariseAligned, type WindSummary } from "./wind/align";
 import type {
@@ -14,7 +14,6 @@ import type {
   EnrichedPoint,
   SegmentLabel,
   SegmentPlan,
-  SegmentStats,
   SessionMetrics,
   TrackPoint,
   WindModel,
@@ -39,7 +38,7 @@ export interface Analysis {
   upwind: DirectionStats;
   downwind: DirectionStats;
   wind: WindSummary;
-  dw: { all: SegmentStats; free: SegmentStats; powered: SegmentStats };
+  dw: DownwindBreakdown;
 }
 
 export function analyse(input: AnalysisInput): Analysis {

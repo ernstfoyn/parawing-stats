@@ -49,13 +49,39 @@ export const DEFAULT_CLASSIFY_OPTIONS: ClassifyOptions = {
   minRunS: 12,
 };
 
+/**
+ * Where a downwind stretch stops being a powered reach and becomes a downwind run: within 55° of
+ * straight downwind, i.e. TWA at or beyond 125°. This is the rider's own rule — a parawing cannot
+ * hold a course that deep with the wing flying, so the wing must have been packed. See
+ * `scoreDownwindKind`, which is the only thing that should use it.
+ */
+export const RUN_TWA_MIN = 125;
+
+/**
+ * A stretch has to last and cover ground before it is worth calling a run.
+ *
+ * Below this it is a gybe, a wobble or a slide, not a downwind run, and listing it would pad the
+ * table with fragments and inflate the count. The same floor is applied to upwind stretches so a
+ * table always means the same thing by "a run".
+ */
+export const RUN_MIN_DURATION_S = 30;
+export const RUN_MIN_DISTANCE_M = 100;
+
+/** True when a stretch is long enough to count as a run in the tables and the totals. */
+export function isRunSized(segment: Segment): boolean {
+  return (
+    segment.features.durationS >= RUN_MIN_DURATION_S &&
+    segment.features.distanceM >= RUN_MIN_DISTANCE_M
+  );
+}
+
 /** Internal per-point state. `unclassified` means "we cannot tell" (usually missing wind). */
 type PointState = "upwind" | "reaching" | "downwind" | "idle" | "unclassified";
 
 const STATE_TO_LABEL: Record<PointState, SegmentLabel> = {
   upwind: "upwind",
   reaching: "reaching",
-  downwind: "powered_downwind", // refined into free/powered afterwards
+  downwind: "powered_downwind", // refined into downwind / powered reach by scoreDownwindKind
   idle: "idle",
   unclassified: "unclassified",
 };
@@ -226,15 +252,23 @@ export function segmentFeatures(
 }
 
 /**
- * Guess whether a downwind run was powered sailing or a free (parawing packed) wave ride.
+ * Guess whether a downwind stretch is a downwind run or a powered reach.
  *
- * This is an honest heuristic, not a measurement. Two signals are used:
- *  - how close to a dead run the segment is (free riding on swell tends to run deep),
- *  - how fast the segment is relative to the rest of the session's downwind sailing (surfing
- *    carries more speed than a steady powered broad reach).
+ * The rule is the rider's own, not a heuristic invented here: **a parawing cannot hold a course
+ * within 55° of straight downwind while it is still flying**, so a stretch that deep was ridden
+ * with the wing packed down and the rider on wave energy. Anything in the downwind band that stays
+ * shallower than that is a *powered reach* — the rider has borne away only a little from the beam
+ * with the wing still up. Hence a course test, `TWA >= 125°`, which is what a rider means by
+ * "downwind" and what makes a powered stretch look obviously different on the map.
  *
- * Confidence is deliberately capped well below 1: the physical state of the parawing cannot be
- * observed from GPS and station wind, and the UI says so.
+ * An earlier version of this function let speed relative to the session carry most of the weight
+ * and treated depth as a weak corroborator. On a real Rygge session that labelled twenty
+ * dead-run stretches as "powered" because they happened to be slower than the session's fastest
+ * 10 %, which is backwards: for this rider, going deep is *why* the wing comes down.
+ *
+ * Speed still corroborates — a swell ride usually carries speed — but only in the confidence, and
+ * never enough to move the boundary. Confidence is capped well below 1: GPS cannot see whether the
+ * wing was packed, and the UI says so.
  */
 export function scoreDownwindKind(
   features: SegmentFeatures,
@@ -244,28 +278,34 @@ export function scoreDownwindKind(
   const reasons: string[] = [];
 
   const twa = Number.isFinite(features.avgTwaDeg) ? features.avgTwaDeg : null;
-  const alignment = twa == null ? 0.4 : clamp((twa - 120) / 50, 0, 1);
+  const isRun = twa != null && twa >= RUN_TWA_MIN;
+  const label: SegmentLabel = isRun ? "free_downwind" : "powered_downwind";
 
-  const ref = sessionRefSpeedMps && sessionRefSpeedMps > 1 ? sessionRefSpeedMps : null;
-  const speedRatio = ref ? features.avgSpeedMps / ref : null;
-  const speedScore = speedRatio == null ? 0.5 : clamp((speedRatio - 0.75) / 0.4, 0, 1);
-
-  const freeScore = 0.55 * alignment + 0.45 * speedScore;
-  const label: SegmentLabel = freeScore >= 0.6 ? "free_downwind" : "powered_downwind";
+  const depth = clamp(features.deadRunFraction, 0, 1);
 
   if (twa == null) {
     reasons.push("No wind direction was available for part of this segment.");
-  } else if (features.deadRunFraction > 0.5) {
+  } else if (isRun) {
+    const off = 180 - twa;
     reasons.push(
-      `Ran deep: mean TWA ${Math.round(twa)}°, ${Math.round(features.deadRunFraction * 100)}% of the time beyond 150°.`,
+      `Ran within ${Math.round(off)}° of straight downwind (mean TWA ${Math.round(twa)}°) — too deep for a parawing to hold with the wing flying, so the wing was probably packed.`,
     );
   } else {
-    reasons.push(`Broad downwind reach: mean TWA ${Math.round(twa)}°.`);
+    reasons.push(
+      `Bore away only ${Math.round(twa - 90)}° past the beam (mean TWA ${Math.round(twa)}°), short of a run — the wing was probably still carrying the rider.`,
+    );
+  }
+  if (depth > 0.2) {
+    reasons.push(
+      `${Math.round(depth * 100)}% of the stretch was beyond 150°, i.e. dead downwind.`,
+    );
   }
 
+  const ref = sessionRefSpeedMps && sessionRefSpeedMps > 1 ? sessionRefSpeedMps : null;
+  const speedRatio = ref ? features.avgSpeedMps / ref : null;
   if (speedRatio != null && ref) {
     reasons.push(
-      `Average ${features.avgSpeedMps.toFixed(1)} m/s, ${Math.round(speedRatio * 100)}% of the session's reference downwind speed (${ref.toFixed(1)} m/s).`,
+      `Average ${features.avgSpeedMps.toFixed(1)} m/s, ${Math.round(speedRatio * 100)}% of the session's reference downwind speed (${ref.toFixed(1)} m/s). Speed only corroborates the course.`,
     );
   }
 
@@ -281,9 +321,14 @@ export function scoreDownwindKind(
     );
   }
 
-  const dataQuality = clamp(windCoverage, 0, 1);
-  const margin = Math.abs(freeScore - 0.6) / 0.4; // 0 = coin flip, 1 = clearly one or the other
-  const confidence = clamp(0.35 + 0.3 * margin + 0.15 * dataQuality, 0.3, 0.8);
+  // How far the call sits from the boundary, and how solid the supporting evidence is. A stretch
+  // that clears 125° by a degree is honestly a coin flip; one at 155° is not.
+  const margin = twa == null ? 0 : clamp(Math.abs(twa - RUN_TWA_MIN) / 25, 0, 1);
+  const confidence = clamp(
+    0.28 + 0.22 * margin + 0.15 * depth + 0.15 * clamp(windCoverage, 0, 1),
+    0.3,
+    0.8,
+  );
 
   reasons.push(
     "Estimate only — GPS and wind cannot show whether the parawing was still flying. Confirm or change the label.",
@@ -604,25 +649,40 @@ export function planCoversTrack(plan: SegmentPlan, pointCount: number): boolean 
 
 /* -------------------------------------------------------------------- stats */
 
+/** The two kinds of downwind stretch, reported separately and never added together. */
+export interface DownwindBreakdown {
+  /**
+   * The downwind runs: parawing packed, riding swell. This is the answer to "how far did I go
+   * downwind", and the only thing counted as downwind distance or time.
+   */
+  downwind: SegmentStats;
+  /**
+   * Stretches with the wing still flying and the course falling away from the wind. A broad reach
+   * rather than a run, so it is deliberately kept out of the downwind totals: a parawing cannot
+   * hold a dead run under power, which means a powered stretch is never a downwind one.
+   */
+  poweredReach: SegmentStats;
+}
+
 /**
- * Aggregate downwind statistics. Only confirmed downwind segments count: powered sailing and free
- * surfing both qualify as "downwind sailing", but they are reported separately and excluded
- * segments are ignored entirely.
+ * Aggregate downwind statistics, split into the runs the rider came for and the powered reaches
+ * that merely look like them from a distance.
+ *
+ * Both confirmed and classifier-guessed segments are included, so the numbers react the moment the
+ * rider relabels a stretch; the confidence of each guess is shown wherever it is used.
  */
-export function downwindStats(
-  plan: SegmentPlan,
-): { all: SegmentStats; free: SegmentStats; powered: SegmentStats } {
-  const free: Segment[] = [];
-  const powered: Segment[] = [];
+export function downwindStats(plan: SegmentPlan): DownwindBreakdown {
+  const downwind: Segment[] = [];
+  const poweredReach: Segment[] = [];
   for (const s of plan.segments) {
+    if (!isRunSized(s)) continue;
     const label = effectiveLabel(s);
-    if (label === "free_downwind") free.push(s);
-    else if (label === "powered_downwind") powered.push(s);
+    if (label === "free_downwind") downwind.push(s);
+    else if (label === "powered_downwind") poweredReach.push(s);
   }
   return {
-    free: statsFor(free),
-    powered: statsFor(powered),
-    all: statsFor([...free, ...powered]),
+    downwind: statsFor(downwind),
+    poweredReach: statsFor(poweredReach),
   };
 }
 

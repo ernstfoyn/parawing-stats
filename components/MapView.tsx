@@ -5,9 +5,16 @@
  *
  * MapLibre is imported dynamically inside an effect so it never touches the server bundle and
  * never breaks SSR. The base map is OpenFreeMap's keyless *positron* style — a pale, almost
- * unlabelled surface that lets the track carry all of the colour. The track is drawn as one GeoJSON
- * line per segment; automatic (not yet confirmed) segments are dashed so a rider can always tell an
- * estimate from a decision they made.
+ * unlabelled surface that lets the track carry all of the colour. The track is drawn as one thin
+ * solid line per segment, coloured by label: dashes were dropped deliberately, because a dashed
+ * line reads as a lower-quality line rather than as "unconfirmed", and the estimate/reality
+ * distinction is stated in words in the runs table instead.
+ *
+ * Selecting a run (from the table beside the map, from a numbered badge, or by clicking the track)
+ * lifts it out of the pack: it gets a paper-white halo and a heavier line, and every other segment
+ * is greyed back to a neutral, so the answer to "where did I actually go downwind" is legible at a
+ * glance. Greying rather than fading is deliberate — semi-transparent segments overlap at their
+ * shared endpoints and the opacity compounds into visible blobs.
  *
  * Start, finish, the wind arrow and the numbered downwind badges are HTML markers rather than symbol
  * layers: they are annotations about the session, not map geometry, and they keep working when the
@@ -34,9 +41,16 @@ const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SOURCE_TRACK = "fa-track";
 const SOURCE_CASING = "fa-casing";
 const LAYER_HALO = "fa-halo";
-const LAYER_CASING = "fa-casing-layer";
-const LAYER_DASHED = "fa-dashed";
-const LAYER_SOLID = "fa-solid";
+const LAYER_TRACK = "fa-track-layer";
+
+/** Paper white, so the halo reads as a gap cut around the selected run rather than as an outline. */
+const HALO_COLOR = "#faf9f6";
+/** What everything else turns into while one run is selected: neutral, out of the way, still legible. */
+const DIMMED_COLOR = "#cdc9be";
+
+const WIDTH_TRACK = 2.4;
+const WIDTH_FOCUS = 4.8;
+const WIDTH_LONGEST = 4;
 
 /**
  * MapLibre v6 cannot infer its worker URL under a bundler (it derives a sibling path from
@@ -65,9 +79,14 @@ export interface MapViewProps {
 interface TrackProps {
   id: string;
   color: string;
-  dashed: boolean;
+  /** the run the rider picked: heaviest line, halo, everything else greyed */
   selected: boolean;
+  /** the longest confirmed downwind run, marked passively on load */
   highlight: boolean;
+  /** either of the above — this is what gets the halo */
+  focus: boolean;
+  /** something else is selected, so this segment steps back */
+  dim: boolean;
 }
 
 type LineFeature = {
@@ -91,9 +110,10 @@ function buildTrackFeatures(points: EnrichedPoint[], plan: SegmentPlan): LineFea
       properties: {
         id: seg.id,
         color: segmentColor(effectiveLabel(seg)),
-        dashed: seg.manualLabel == null,
         selected: false,
         highlight: false,
+        focus: false,
+        dim: false,
       },
     });
   }
@@ -187,6 +207,13 @@ export default function MapView(props: MapViewProps) {
    * (e.g. drawing the wind arrow for a session opened before the map finished loading).
    */
   const [ready, setReady] = useState(false);
+  /**
+   * True while the last hover came from the map itself. The map deliberately shows no tooltip for
+   * its own hover: a card that chases the cursor across the track is noise, and the same numbers
+   * are one click away in the run detail. The pin and tooltip are therefore reserved for a hover
+   * that came from the charts, where they answer "which point am I looking at".
+   */
+  const hoverFromMapRef = useRef(false);
 
   /** The latest data, read by the imperative map event handlers. */
   const dataRef = useRef({ points, labels, plan, onSelect, onHoverIdx, unit, tzOffsetMin });
@@ -194,20 +221,18 @@ export default function MapView(props: MapViewProps) {
   /* ------------------------------------------------------------------ derived */
 
   const features = useMemo(() => {
-    return buildTrackFeatures(points, plan).map((f) => ({
-      ...f,
-      properties: {
-        ...f.properties,
-        selected: selectedId != null && f.properties.id === selectedId,
-        highlight: highlightId != null && f.properties.id === highlightId,
-      },
-    }));
+    return buildTrackFeatures(points, plan).map((f) => {
+      const selected = selectedId != null && f.properties.id === selectedId;
+      const highlight = highlightId != null && f.properties.id === highlightId;
+      const focus = selected || highlight;
+      // Only a deliberate selection greys out the rest; the passive "longest run" mark on load
+      // should not repaint the whole map.
+      const dim = selectedId != null && !focus;
+      return { ...f, properties: { ...f.properties, selected, highlight, focus, dim } };
+    });
   }, [points, plan, selectedId, highlightId]);
 
-  const casingFeatures = useMemo(
-    () => features.filter((f) => f.properties.highlight || f.properties.selected),
-    [features],
-  );
+  const focusFeatures = useMemo(() => features.filter((f) => f.properties.focus), [features]);
 
   const runs = useMemo(() => downwindRuns(plan.segments, points), [plan, points]);
 
@@ -228,9 +253,9 @@ export default function MapView(props: MapViewProps) {
       const track = map.getSource(SOURCE_TRACK) as { setData: (d: unknown) => void } | undefined;
       const casing = map.getSource(SOURCE_CASING) as { setData: (d: unknown) => void } | undefined;
       track?.setData({ type: "FeatureCollection", features });
-      casing?.setData({ type: "FeatureCollection", features: casingFeatures });
+      casing?.setData({ type: "FeatureCollection", features: focusFeatures });
     },
-    [features, casingFeatures],
+    [features, focusFeatures],
   );
 
   const fitToTrack = useCallback((map: MlMap) => {
@@ -308,46 +333,38 @@ export default function MapView(props: MapViewProps) {
           data: { type: "FeatureCollection", features: [] },
         });
 
-        // Order matters, bottom first: a pale casing lifts the longest downwind run off the map,
-        // then a dark casing marks the selected segment, then the coloured track on top.
+        // Two layers, bottom first. The halo is paper-white and only exists for the focused run, so
+        // it reads as a clean gap cut around it; the track on top is one thin solid line per
+        // segment, coloured by label. Everything not focused greys back while a run is selected.
         map.addLayer({
           id: LAYER_HALO,
           type: "line",
           source: SOURCE_CASING,
-          filter: ["==", ["get", "highlight"], true],
           layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": "#faf9f6", "line-width": 11, "line-opacity": 1 },
-        });
-        map.addLayer({
-          id: LAYER_CASING,
-          type: "line",
-          source: SOURCE_CASING,
-          filter: ["==", ["get", "selected"], true],
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": "#121211", "line-width": 8, "line-opacity": 0.9 },
-        });
-        map.addLayer({
-          id: LAYER_DASHED,
-          type: "line",
-          source: SOURCE_TRACK,
-          filter: ["==", ["get", "dashed"], true],
-          layout: { "line-cap": "butt", "line-join": "round" },
           paint: {
-            "line-color": ["get", "color"],
-            "line-width": ["case", ["get", "highlight"], 5.5, 3.2],
-            "line-dasharray": [2, 2],
-            "line-opacity": 0.9,
+            "line-color": HALO_COLOR,
+            "line-width": ["case", ["get", "selected"], 10.5, 9],
+            "line-opacity": 1,
           },
         });
         map.addLayer({
-          id: LAYER_SOLID,
+          id: LAYER_TRACK,
           type: "line",
           source: SOURCE_TRACK,
-          filter: ["==", ["get", "dashed"], false],
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": ["get", "color"],
-            "line-width": ["case", ["get", "highlight"], 5.5, 3.2],
+            "line-color": ["case", ["get", "dim"], DIMMED_COLOR, ["get", "color"]],
+            "line-width": [
+              "case",
+              ["get", "selected"],
+              WIDTH_FOCUS,
+              ["get", "highlight"],
+              WIDTH_LONGEST,
+              ["get", "dim"],
+              2,
+              WIDTH_TRACK,
+            ],
+            "line-opacity": 1,
           },
         });
 
@@ -368,6 +385,7 @@ export default function MapView(props: MapViewProps) {
         const { x, y } = pending;
         pending = null;
         const ll = map.unproject([x, y]);
+        hoverFromMapRef.current = true;
         dataRef.current.onHoverIdx(nearestIndex(dataRef.current.points, ll.lng, ll.lat));
       };
 
@@ -377,6 +395,7 @@ export default function MapView(props: MapViewProps) {
         map.getCanvas().style.cursor = "crosshair";
       });
       map.on("mouseout", () => {
+        hoverFromMapRef.current = false;
         dataRef.current.onHoverIdx(null);
       });
       map.on("click", (e) => {
@@ -452,6 +471,7 @@ export default function MapView(props: MapViewProps) {
         el.className = "dw-marker";
         el.textContent = String(run.n);
         el.dataset.kind = run.segment.manualLabel == null ? "estimate" : run.label;
+        el.dataset.segmentId = run.segment.id;
         const f = run.segment.features;
         el.title = `Run ${run.n} · ${SEGMENT_LABEL_TEXT[run.label]} · ${(f.distanceM / 1000).toFixed(2)} km · ${Math.round(f.durationS)} s`;
         el.addEventListener("click", (event) => {
@@ -491,6 +511,17 @@ export default function MapView(props: MapViewProps) {
     };
   }, [markerKey, points, runs, wind?.dirFromDeg, ready]);
 
+  // Mark the badge of the selected run, so the map and the table agree about which row is active.
+  // This only touches `data-selected` on markers that already exist; rebuilding them here would
+  // make every badge flicker on each click.
+  useEffect(() => {
+    for (const m of markersRef.current) {
+      const el = m.getElement();
+      if (!el.classList.contains("dw-marker")) continue;
+      el.dataset.selected = el.dataset.segmentId === selectedId ? "true" : "false";
+    }
+  }, [selectedId, ready, markerKey]);
+
   // Hover pin + tooltip, driven by whichever chart or map set the cursor.
   useEffect(() => {
     let cancelled = false;
@@ -501,7 +532,7 @@ export default function MapView(props: MapViewProps) {
       const maplibregl = await import("maplibre-gl");
       if (cancelled || !mapRef.current) return;
 
-      if (hoverIdx == null || !points[hoverIdx]) {
+      if (hoverIdx == null || !points[hoverIdx] || hoverFromMapRef.current) {
         hoverMarkerRef.current?.remove();
         hoverMarkerRef.current = null;
         popupRef.current?.remove();
@@ -575,8 +606,8 @@ export default function MapView(props: MapViewProps) {
         className="h-[52vh] min-h-[320px] w-full overflow-hidden border border-ink sm:h-[62vh]"
       />
       <div className="pointer-events-none absolute left-3 top-3 map-chip">
-        tap the track to select
-        <span className="hidden sm:inline"> · hover for detail</span>
+        click a run to zoom in
+        <span className="hidden sm:inline"> · or click the track to pick a block</span>
       </div>
       <div className="north-arrow absolute right-3 top-[104px]" title="North is up">
         <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden>
@@ -592,9 +623,9 @@ export default function MapView(props: MapViewProps) {
               <span>{SEGMENT_LABEL_TEXT[label]}</span>
             </div>
           ))}
-          <div className="map-legend-row mt-0.5 text-grey">
-            <span className="map-legend-line" data-dashed="true" style={{ borderTopColor: "#8e8a7e" }} />
-            <span>dashed = estimate</span>
+          <div className="map-legend-row mt-1 border-t border-quiet pt-1">
+            <span className="map-legend-badge" />
+            <span>numbered = downwind run</span>
           </div>
         </div>
       )}

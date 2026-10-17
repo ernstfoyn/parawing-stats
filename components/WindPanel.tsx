@@ -350,8 +350,21 @@ export default function WindPanel({
                         </span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Chip color={s.hasWind ? SIGNAL : "#7b7870"}>
-                          {s.hasWind ? "has data this session" : "no data this session"}
+                        <Chip
+                          color={!s.hasWind ? "#7b7870" : s.hasDirection ? SIGNAL : "#e0763a"}
+                          title={
+                            s.hasDirection
+                              ? "Wind speed and direction in your session window — enough to compute TWA and VMG."
+                              : s.hasWind
+                                ? "Wind speed only. Without direction there is no true wind angle, so this station cannot separate downwind from upwind."
+                                : "No wind elements in your session window."
+                          }
+                        >
+                          {!s.hasWind
+                            ? "no data this session"
+                            : s.hasDirection
+                              ? "speed + direction"
+                              : "speed only, no direction"}
                         </Chip>
                         <span className="mono text-[0.62rem] text-grey">
                           score {s.score.toFixed(2)}

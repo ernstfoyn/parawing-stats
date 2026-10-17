@@ -151,6 +151,12 @@ export interface StationRef {
   score: number;
   /** true when the station advertises wind observations */
   hasWind: boolean;
+  /**
+   * true when the station also reports wind *direction*. Without it there is no true wind angle,
+   * no VMG and no way to separate a downwind run from an upwind beat, so a speed-only station is a
+   * much weaker candidate.
+   */
+  hasDirection: boolean;
 }
 
 export interface ManualWind {

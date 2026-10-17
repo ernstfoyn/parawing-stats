@@ -109,17 +109,20 @@ describe("buildSegmentPlan", () => {
     expect(b.some((l) => l.includes("downwind"))).toBe(true);
   });
 
-  it("marks a fast, deep run as free downwind and a slow broad reach as powered", () => {
-    const fast = syntheticEnriched([{ headingDeg: DEEP, speedMps: 12, seconds: 90 }], {
+  it("marks a deep run as downwind and a course just past the beam as a powered reach", () => {
+    const deep = syntheticEnriched([{ headingDeg: DEEP, speedMps: 12, seconds: 90 }], {
       windFromDeg: 0,
     });
-    const slow = syntheticEnriched([{ headingDeg: 130, speedMps: 6, seconds: 90 }], {
+    // TWA 120°: past the beam, but outside the 55° window that the rider counts as a run.
+    const broad = syntheticEnriched([{ headingDeg: 120, speedMps: 8, seconds: 90 }], {
       windFromDeg: 0,
     });
-    const fastPlan = buildSegmentPlan(fast);
-    const slowPlan = buildSegmentPlan(slow);
-    expect(effectiveLabel(fastPlan.segments[fastPlan.segments.length - 1])).toBe("free_downwind");
-    expect(effectiveLabel(slowPlan.segments[slowPlan.segments.length - 1])).toBe("powered_downwind");
+    const deepPlan = buildSegmentPlan(deep);
+    const broadPlan = buildSegmentPlan(broad);
+    expect(effectiveLabel(deepPlan.segments[deepPlan.segments.length - 1])).toBe("free_downwind");
+    expect(effectiveLabel(broadPlan.segments[broadPlan.segments.length - 1])).toBe(
+      "powered_downwind",
+    );
   });
 
   it("never claims more than 80% confidence about the parawing's state", () => {
@@ -187,9 +190,17 @@ describe("scoreDownwindKind", () => {
     expect(scoreDownwindKind(base, 10, 1).label).toBe("free_downwind");
   });
 
-  it("prefers powered sailing for broad, slower runs", () => {
-    const broad = { ...base, avgTwaDeg: 125, deadRunFraction: 0, avgSpeedMps: 6 };
+  it("prefers a powered reach for a broad course that never gets near a run", () => {
+    const broad = { ...base, avgTwaDeg: 118, deadRunFraction: 0, avgSpeedMps: 6 };
     expect(scoreDownwindKind(broad, 10, 1).label).toBe("powered_downwind");
+  });
+
+  it("puts the boundary where the rider's rule does: within 55° of a dead run", () => {
+    // The rule the whole downwind number rests on. A parawing cannot hold a course within 55° of
+    // straight downwind with the wing flying, so 125° is the line: at or beyond it the wing was
+    // packed and the rider was on wave energy.
+    expect(scoreDownwindKind({ ...base, avgTwaDeg: 126 }, 10, 1).label).toBe("free_downwind");
+    expect(scoreDownwindKind({ ...base, avgTwaDeg: 124 }, 10, 1).label).toBe("powered_downwind");
   });
 
   it("lowers confidence when wind coverage is poor", () => {
@@ -216,17 +227,17 @@ describe("manual editing", () => {
     const dw = plan.segments.find((s) => effectiveLabel(s).includes("downwind"))!;
     const edited = setSegmentLabel(plan, dw.id, "free_downwind");
     expect(effectiveLabel(edited.segments.find((s) => s.id === dw.id)!)).toBe("free_downwind");
-    expect(downwindStats(edited).free.count).toBe(1);
+    expect(downwindStats(edited).downwind.count).toBe(1);
   });
 
   it("excludes a segment from the statistics", () => {
     const points = build();
     let plan = buildSegmentPlan(points);
     const dw = plan.segments.find((s) => effectiveLabel(s).includes("downwind"))!;
-    expect(downwindStats(plan).all.count).toBe(1);
+    expect(downwindStats(plan).downwind.count).toBe(1);
     plan = setSegmentLabel(plan, dw.id, "excluded");
-    expect(downwindStats(plan).all.count).toBe(0);
-    expect(downwindStats(plan).all.distanceM).toBe(0);
+    expect(downwindStats(plan).downwind.count).toBe(0);
+    expect(downwindStats(plan).downwind.distanceM).toBe(0);
   });
 
   it("splits a segment in two and keeps the plan covering the track", () => {
@@ -239,11 +250,12 @@ describe("manual editing", () => {
     const parts = split.segments.filter((s) => s.startIdx === dw.startIdx || s.endIdx === dw.endIdx);
     expect(parts.length).toBeGreaterThanOrEqual(2);
     expect(splitsAreAdjacent(split)).toBe(true);
-    // Statistics are recalculated immediately: the half labelled as surfing is separate.
+    // Statistics are recalculated immediately: the half relabelled as a powered reach is counted
+    // separately from the half left as a downwind run.
     const half = split.segments.find((s) => s.startIdx === mid)!;
-    const relabelled = setSegmentLabel(split, half.id, "free_downwind");
-    expect(downwindStats(relabelled).free.count).toBe(1);
-    expect(downwindStats(relabelled).powered.count).toBe(1);
+    const relabelled = setSegmentLabel(split, half.id, "powered_downwind");
+    expect(downwindStats(relabelled).downwind.count).toBe(1);
+    expect(downwindStats(relabelled).poweredReach.count).toBe(1);
   });
 
   it("ignores a split outside the segment", () => {
@@ -296,8 +308,8 @@ describe("manual editing", () => {
     expect(labeled.startIdx).toBe(from);
     expect(labeled.endIdx).toBe(to);
     const stats = downwindStats(plan);
-    expect(stats.free.count).toBe(1);
-    expect(stats.free.distanceM).toBeGreaterThan(0);
+    expect(stats.downwind.count).toBe(1);
+    expect(stats.downwind.distanceM).toBeGreaterThan(0);
   });
 
   it("resets every manual correction", () => {
@@ -343,16 +355,16 @@ describe("downwindStats", () => {
     );
     const plan = buildSegmentPlan(points);
     const stats = downwindStats(plan);
-    expect(stats.all.count).toBe(2);
+    expect(stats.downwind.count).toBe(2);
     // Two downwind runs of ~100 s and ~200 s at 9 m/s.
-    expect(stats.all.distanceM).toBeGreaterThan(2500);
-    expect(stats.all.distanceM).toBeLessThan(2800);
-    expect(stats.all.durationS).toBeGreaterThan(290);
-    expect(stats.all.durationS).toBeLessThan(310);
-    expect(stats.all.avgSpeedMps).toBeCloseTo(9, 1);
-    expect(stats.all.longest!.durationS).toBeGreaterThan(190);
-    expect(stats.all.longest!.distanceM).toBeGreaterThan(stats.all.distanceM / 2);
-    expect(stats.all.avgVmgDownMps!).toBeGreaterThan(5);
+    expect(stats.downwind.distanceM).toBeGreaterThan(2500);
+    expect(stats.downwind.distanceM).toBeLessThan(2800);
+    expect(stats.downwind.durationS).toBeGreaterThan(290);
+    expect(stats.downwind.durationS).toBeLessThan(310);
+    expect(stats.downwind.avgSpeedMps).toBeCloseTo(9, 1);
+    expect(stats.downwind.longest!.durationS).toBeGreaterThan(190);
+    expect(stats.downwind.longest!.distanceM).toBeGreaterThan(stats.downwind.distanceM / 2);
+    expect(stats.downwind.avgVmgDownMps!).toBeGreaterThan(5);
   });
 
   it("returns zeros for a session with no downwind", () => {
@@ -360,10 +372,26 @@ describe("downwindStats", () => {
       windFromDeg: 0,
     });
     const stats = downwindStats(buildSegmentPlan(points));
-    expect(stats.all.count).toBe(0);
-    expect(stats.all.distanceM).toBe(0);
-    expect(stats.all.longest).toBeNull();
-    expect(stats.all.avgVmgDownMps).toBeNull();
+    expect(stats.downwind.count).toBe(0);
+    expect(stats.downwind.distanceM).toBe(0);
+    expect(stats.downwind.longest).toBeNull();
+    expect(stats.downwind.avgVmgDownMps).toBeNull();
+  });
+
+  it("ignores a stretch too short to count as a run", () => {
+    // 35 s at 2.5 m/s is about 87 m: real downwind riding, but under the 100 m floor, so it must
+    // not pad the run count or the downwind distance. The table and the map badges use the same
+    // floor via `segmentRuns`, so all three always agree.
+    const points = syntheticEnriched(
+      [
+        { headingDeg: DOWNWIND, speedMps: 2.5, seconds: 35 },
+        { headingDeg: UPWIND, speedMps: 6, seconds: 120 },
+      ],
+      { windFromDeg: 0 },
+    );
+    const stats = downwindStats(buildSegmentPlan(points));
+    expect(stats.downwind.count).toBe(0);
+    expect(stats.downwind.distanceM).toBe(0);
   });
 });
 

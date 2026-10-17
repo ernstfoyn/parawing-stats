@@ -43,7 +43,7 @@ export default function EquipmentPanel({
 
   return (
     <Panel
-      index="09"
+      index="08"
       kicker="Equipment"
       title="What you rode"
       subtitle={open ? undefined : summary}

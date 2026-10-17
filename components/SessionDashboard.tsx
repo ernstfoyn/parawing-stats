@@ -5,21 +5,26 @@
  *
  * One place that owns the editable half of a session (name, wind, segment plan, equipment) and
  * re-runs the pure analysis pipeline whenever any of it changes. Because `analyse()` is pure, a
- * relabel or a wind change recalculates the map, the charts, the runs table, the best windows and
+ * relabel or a wind change recalculates the map, the charts, the run lists, the best windows and
  * every statistic in one pass — no re-parsing, no network, no flicker.
+ *
+ * The panels are ordered by what the rider is actually here to find out: the track and the two
+ * run lists first, then how far and how long they went downwind, and only then the wind, the
+ * session totals, the charts, the segment editor and the paperwork.
  */
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bestEfforts } from "@/lib/bestWindows";
-import { analyse } from "@/lib/pipeline";
 import { carryManualLabels } from "@/lib/classify";
+import { analyse } from "@/lib/pipeline";
 import {
   DEFAULT_EQUIPMENT_PRESETS,
   saveEquipmentPresets,
   sessionCentroid,
   updateSessionMeta,
 } from "@/lib/storage/sessions";
+import { describeVmgBasis, downwindRuns, upwindRuns } from "@/lib/summary";
 import {
   formatDateInOffset,
   formatDistance,
@@ -33,10 +38,12 @@ import {
 import type { EnrichedPoint, EquipmentProfile, SessionRecord, WindModel, WindSample } from "@/lib/types";
 import BestWindows from "./BestWindows";
 import { buildChartData, SpeedHistogram, SpeedProfileChart, WindChart } from "./Charts";
-import DownwindRuns from "./DownwindRuns";
 import EquipmentPanel from "./EquipmentPanel";
 import MapView from "./MapView";
+import RunDetail from "./RunDetail";
+import RunsTable from "./RunsTable";
 import SegmentTimeline from "./SegmentTimeline";
+import SpeedBands from "./SpeedBands";
 import WindPanel from "./WindPanel";
 import { Chip, Note, Panel, SegmentedControl, Stat } from "./ui";
 
@@ -90,7 +97,57 @@ export default function SessionDashboard({
   const chartData = useMemo(() => buildChartData(analysis.points), [analysis.points]);
   const efforts = useMemo(() => bestEfforts(analysis.points), [analysis.points]);
   const centroid = useMemo(() => sessionCentroid(record.points), [record.points]);
-  const highlightId = analysis.dw.all.longest?.id ?? null;
+
+  /* The two lists the rider works from, and the numbering the map badges reuse. */
+  const dwRuns = useMemo(
+    () => downwindRuns(analysis.plan.segments, analysis.points),
+    [analysis.plan, analysis.points],
+  );
+  const uwRuns = useMemo(
+    () => upwindRuns(analysis.plan.segments, analysis.points),
+    [analysis.plan, analysis.points],
+  );
+  const dwRanges = useMemo(
+    () => dwRuns.map((r) => ({ startIdx: r.segment.startIdx, endIdx: r.segment.endIdx })),
+    [dwRuns],
+  );
+
+  /** Numbered badge of the longest run is marked passively on load; only a click dims the rest. */
+  const highlightId = analysis.dw.downwind.longest?.id ?? null;
+
+  const vmgBasis = useMemo(() => describeVmgBasis(wind, analysis.wind), [wind, analysis.wind]);
+
+  /* The selected stretch, and the chronological order to step through with ← / →. */
+  const selectedRun = useMemo(() => {
+    const dw = dwRuns.find((r) => r.segment.id === selectedId);
+    if (dw) return dw;
+    const uw = uwRuns.find((r) => r.segment.id === selectedId);
+    if (uw) return uw;
+    return null;
+  }, [dwRuns, uwRuns, selectedId]);
+
+  const runOrder = useMemo(
+    () =>
+      [
+        ...dwRuns.map((r) => ({ id: r.segment.id, startIdx: r.segment.startIdx })),
+        ...uwRuns.map((r) => ({ id: r.segment.id, startIdx: r.segment.startIdx })),
+      ].sort((a, b) => a.startIdx - b.startIdx),
+    [dwRuns, uwRuns],
+  );
+
+  const selectedIndex = useMemo(
+    () => runOrder.findIndex((r) => r.id === selectedId),
+    [runOrder, selectedId],
+  );
+
+  const stepRun = useCallback(
+    (delta: -1 | 1) => {
+      const next = selectedIndex + delta;
+      if (selectedIndex < 0 || next < 0 || next >= runOrder.length) return;
+      setSelectedId(runOrder[next].id);
+    },
+    [runOrder, selectedIndex],
+  );
 
   /* When the wind changes, rebuild the automatic classification (the old guesses used different
      wind) but keep every label the rider confirmed. */
@@ -161,6 +218,16 @@ export default function SessionDashboard({
   const localTime = (t: number) =>
     new Date(t + (tz ?? 0) * 60_000).toISOString().slice(11, 16);
 
+  const dwKr = dw.downwind;
+  const runsHint = [
+    dwKr.count > 0 ? formatDurationLong(dwKr.durationS) : null,
+    dw.poweredReach.count > 0
+      ? `${dw.poweredReach.count} powered reach${dw.poweredReach.count === 1 ? "" : "es"} not counted`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-6">
       {/* ---------------------------------------------------------------- header */}
@@ -212,9 +279,208 @@ export default function SessionDashboard({
       </header>
 
       <div className="space-y-4">
-        {/* ------------------------------------------------------------------ wind */}
+        {/* ------------------------------------------------------------------ track */}
         <Panel
           index="01"
+          kicker="Track"
+          title="Where the session went"
+          subtitle="One thin solid line per stretch, coloured by label. Click a run in either list to zoom to it, drop the rest of the track back to grey, and open that stretch up slice by slice."
+        >
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)]">
+            <MapView
+              points={analysis.points}
+              labels={analysis.labels}
+              plan={analysis.plan}
+              highlightId={highlightId}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              hoverIdx={hoverIdx}
+              onHoverIdx={setHoverIdx}
+              unit={unit}
+              tzOffsetMin={tz}
+              wind={
+                wind.kind === "none"
+                  ? null
+                  : {
+                      dirFromDeg: wind.manual?.dirFromDeg ?? analysis.wind.meanDirFromDeg,
+                      speedMps: wind.manual?.speedMps ?? analysis.wind.avgSpeedMps,
+                      quality: wind.kind === "manual" ? "manual" : null,
+                    }
+              }
+            />
+
+            <div className="flex flex-col gap-5 lg:max-h-[62vh] lg:overflow-y-auto lg:pr-2">
+              <section>
+                <div className="mb-1 flex items-baseline justify-between gap-2">
+                  <div className="label">Downwind runs</div>
+                  <span className="mono text-[0.6rem] text-grey">
+                    {dwRuns.length} · {formatDistance(dwKr.distanceM, 3)}
+                  </span>
+                </div>
+                <RunsTable
+                  kind="downwind"
+                  points={analysis.points}
+                  plan={analysis.plan}
+                  unit={unit}
+                  tzOffsetMin={tz}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  compact
+                />
+              </section>
+
+              <section>
+                <div className="mb-1 flex items-baseline justify-between gap-2">
+                  <div className="label">Upwind · speed &amp; VMG</div>
+                  <span className="mono text-[0.6rem] text-grey">
+                    {uwRuns.length} · {formatDistance(analysis.upwind.distanceM, 3)}
+                  </span>
+                </div>
+                <RunsTable
+                  kind="upwind"
+                  points={analysis.points}
+                  plan={analysis.plan}
+                  unit={unit}
+                  tzOffsetMin={tz}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  compact
+                />
+              </section>
+            </div>
+          </div>
+
+          <p className="mt-3 text-[0.68rem] leading-relaxed text-grey">{vmgBasis}</p>
+
+          {selectedRun && (
+            <RunDetail
+              points={analysis.points}
+              segment={selectedRun.segment}
+              unit={unit}
+              tzOffsetMin={tz}
+              ordinal={selectedRun.n}
+              onClear={() => setSelectedId(null)}
+              onStep={stepRun}
+              canStepBack={selectedIndex > 0}
+              canStepForward={selectedIndex >= 0 && selectedIndex < runOrder.length - 1}
+            />
+          )}
+        </Panel>
+
+        {/* -------------------------------------------------------------- downwind */}
+        <Panel
+          index="02"
+          kicker="Downwind"
+          title="How far, and how long, going downwind"
+          subtitle="A stretch counts as a downwind run when it ran within 55° of straight downwind. That is too deep to hold with the parawing still flying, so these are the runs on wave energy — and every one of them is a candidate until you confirm it."
+        >
+          {dwKr.count === 0 ? (
+            <div className="space-y-3">
+              <p className="text-[0.76rem] leading-relaxed text-grey">
+                No stretch on this track ran deep enough to count as a downwind run yet, so there is
+                no distance or time to report. Label a block in the segment timeline below and the
+                numbers appear immediately.
+              </p>
+              {dw.poweredReach.count > 0 && (
+                <Note>
+                  {dw.poweredReach.count} stretch
+                  {dw.poweredReach.count === 1 ? "" : "es"} ({formatDistance(dw.poweredReach.distanceM, 3)},{" "}
+                  {formatDuration(dw.poweredReach.durationS)}) were powered reaches — the wing still
+                  flying, the course only just past the beam. They are deliberately not counted as
+                  downwind.
+                </Note>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
+                <Stat
+                  label="Downwind distance"
+                  value={formatDistance(dwKr.distanceM)}
+                  accent="familiar"
+                />
+                <Stat
+                  label="Downwind time"
+                  value={formatDuration(dwKr.durationS)}
+                  hint={formatDurationLong(dwKr.durationS)}
+                />
+                <Stat
+                  label="Runs"
+                  value={dwKr.count}
+                  accent="familiar"
+                  hint={runsHint || undefined}
+                />
+                <Stat
+                  label="Avg speed"
+                  value={formatSpeed(dwKr.avgSpeedMps, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                  hint="over the runs only"
+                />
+              </div>
+
+              <div className="mt-5 border-t border-quiet pt-4">
+                <SpeedBands points={analysis.points} ranges={dwRanges} unit={unit} />
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 border-t border-quiet pt-4 sm:grid-cols-3 lg:grid-cols-6">
+                <Stat
+                  label="Max speed"
+                  value={formatSpeed(dwKr.maxSpeedMps, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                />
+                <Stat
+                  label="Avg DW VMG"
+                  value={formatSpeed(dwKr.avgVmgDownMps, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                  hint="away from the wind"
+                />
+                <Stat
+                  label="Longest run"
+                  value={formatDistance(dwKr.longest?.distanceM ?? 0)}
+                  hint={dwKr.longest ? formatDuration(dwKr.longest.durationS) : undefined}
+                />
+                <Stat
+                  label="Longest run max"
+                  value={formatSpeed(dwKr.longest?.maxSpeedMps ?? null, unit)}
+                  unit={SPEED_UNIT_LABEL[unit]}
+                  small
+                />
+                <Stat
+                  label="Powered reaches"
+                  value={dw.poweredReach.count}
+                  accent="origin"
+                  small
+                  hint={
+                    dw.poweredReach.count > 0
+                      ? `${formatDistance(dw.poweredReach.distanceM, 3)} — not counted as downwind`
+                      : "none on this track"
+                  }
+                />
+                <Stat
+                  label="Deepest run"
+                  value={`${Math.round(
+                    Math.max(...dwRuns.map((r) => r.segment.features.avgTwaDeg), 0),
+                  )}°`}
+                  small
+                  hint="mean TWA; 180° is straight downwind"
+                />
+              </div>
+
+              <div className="mt-4">
+                <Note>
+                  Downwind distance and time count the runs only. A powered reach is a stretch you
+                  were still flying through with the course barely past the beam — it is reported
+                  separately and never added in, because a parawing cannot hold a run with the wing
+                  up, so a powered stretch is not a downwind one.
+                </Note>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* ------------------------------------------------------------------ wind */}
+        <Panel
+          index="03"
           kicker="Wind"
           title="Where the wind came from"
           subtitle="Wind is estimated at your position from a station or a model — it is never a measurement of the conditions you rode in."
@@ -231,42 +497,12 @@ export default function SessionDashboard({
           />
         </Panel>
 
-        {/* ------------------------------------------------------------------- map */}
+        {/* --------------------------------------------------------------- session */}
         <Panel
-          index="02"
-          kicker="Track"
-          title="GPS track"
-          subtitle="Coloured by segment. Dashed lines are classifier estimates; solid lines are labels you confirmed. Numbered badges are the downwind runs in the table below."
-        >
-          <MapView
-            points={analysis.points}
-            labels={analysis.labels}
-            plan={analysis.plan}
-            highlightId={highlightId}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            hoverIdx={hoverIdx}
-            onHoverIdx={setHoverIdx}
-            unit={unit}
-            tzOffsetMin={tz}
-            wind={
-              wind.kind === "none"
-                ? null
-                : {
-                    dirFromDeg: wind.manual?.dirFromDeg ?? analysis.wind.meanDirFromDeg,
-                    speedMps: wind.manual?.speedMps ?? analysis.wind.avgSpeedMps,
-                    quality: wind.kind === "manual" ? "manual" : null,
-                  }
-            }
-          />
-        </Panel>
-
-        {/* --------------------------------------------------------------- metrics */}
-        <Panel
-          index="03"
+          index="04"
           kicker="Session"
           title="What the session added up to"
-          subtitle="All averages are time-weighted over the real timestamps, never over sample counts."
+          subtitle="All averages are time-weighted over the real timestamps, never over sample counts. Heading time counts every second spent on that point of sail, transitions included; the Downwind panel above counts only complete runs."
         >
           <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
             <Stat label="Distance" value={formatDistance(m.distanceM)} />
@@ -286,16 +522,16 @@ export default function SessionDashboard({
               hint="3 s smoothed"
             />
             <Stat
-              label="Upwind time"
+              label="Upwind heading time"
               value={formatDuration(analysis.upwind.timeS)}
               accent="signal"
-              hint={formatDistance(analysis.upwind.distanceM)}
+              hint={`${formatDistance(analysis.upwind.distanceM)} at TWA ≤ 70°`}
             />
             <Stat
-              label="Downwind time"
+              label="Downwind heading time"
               value={formatDuration(analysis.downwind.timeS)}
-              accent="origin"
-              hint={formatDistance(analysis.downwind.distanceM)}
+              accent="familiar"
+              hint={`${formatDistance(analysis.downwind.distanceM)} at TWA ≥ 110°`}
             />
             <Stat
               label="Avg VMG up / down"
@@ -315,81 +551,22 @@ export default function SessionDashboard({
           )}
         </Panel>
 
-        {/* ----------------------------------------------------------- downwind stats */}
-        <Panel
-          index="04"
-          kicker="Downwind"
-          title="Wave runs"
-          subtitle="Only segments you have confirmed as downwind count in the totals. The classifier's guesses are listed below and dashed on the map, but never counted."
-        >
-          {dw.all.count === 0 ? (
-            <p className="text-[0.76rem] text-grey">
-              No downwind segments on this track yet, confirmed or guessed. Label a block in the
-              segment timeline below and the numbers appear immediately.
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
-              <Stat label="Downwind segments" value={dw.all.count} accent="origin" />
-              <Stat label="Total distance" value={formatDistance(dw.all.distanceM)} accent="origin" />
-              <Stat label="Time" value={formatDuration(dw.all.durationS)} />
-              <Stat
-                label="Avg speed"
-                value={formatSpeed(dw.all.avgSpeedMps, unit)}
-                unit={SPEED_UNIT_LABEL[unit]}
-              />
-              <Stat
-                label="Max speed"
-                value={formatSpeed(dw.all.maxSpeedMps, unit)}
-                unit={SPEED_UNIT_LABEL[unit]}
-              />
-              <Stat
-                label="Avg DW VMG"
-                value={formatSpeed(dw.all.avgVmgDownMps, unit)}
-                unit={SPEED_UNIT_LABEL[unit]}
-              />
-              <Stat
-                label="Longest run"
-                value={formatDistance(dw.all.longest?.distanceM ?? 0)}
-                hint={dw.all.longest ? formatDuration(dw.all.longest.durationS) : undefined}
-              />
-              <Stat label="Free (packed wing)" value={dw.free.count} accent="familiar" hint={formatDistance(dw.free.distanceM)} />
-              <Stat label="Powered" value={dw.powered.count} accent="origin" hint={formatDistance(dw.powered.distanceM)} />
-              <Stat
-                label="Longest run max"
-                value={formatSpeed(dw.all.longest?.maxSpeedMps ?? null, unit)}
-                unit={SPEED_UNIT_LABEL[unit]}
-                small
-              />
-              <Stat
-                label="Free avg speed"
-                value={dw.free.count > 0 ? formatSpeed(dw.free.avgSpeedMps, unit) : "—"}
-                unit={dw.free.count > 0 ? SPEED_UNIT_LABEL[unit] : undefined}
-                small
-              />
-              <Stat
-                label="Powered avg speed"
-                value={dw.powered.count > 0 ? formatSpeed(dw.powered.avgSpeedMps, unit) : "—"}
-                unit={dw.powered.count > 0 ? SPEED_UNIT_LABEL[unit] : undefined}
-                small
-              />
-            </div>
-          )}
-        </Panel>
-
-        {/* ------------------------------------------------------------- runs table */}
+        {/* ---------------------------------------------------------- best efforts */}
         <Panel
           index="05"
-          kicker="Runs"
-          title="Every downwind run"
-          subtitle="Click a row to open that run on the map. Speed is stated in your unit and in m/s, because the two get mixed up constantly."
+          kicker="Best efforts"
+          title="Best windows"
+          subtitle="The fastest one, two and three minute windows, and the best VMG in each. Bars are comparable down a column."
         >
-          <DownwindRuns
-            points={analysis.points}
-            plan={analysis.plan}
+          <BestWindows
+            windows={efforts}
             unit={unit}
             tzOffsetMin={tz}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
+            reference={{
+              speed: m.avgSpeedMps,
+              vmgUp: analysis.upwind.avgVmgMps,
+              vmgDown: analysis.downwind.avgVmgMps,
+            }}
           />
         </Panel>
 
@@ -418,31 +595,12 @@ export default function SessionDashboard({
           </div>
         </Panel>
 
-        {/* ---------------------------------------------------------- best efforts */}
-        <Panel
-          index="07"
-          kicker="Best efforts"
-          title="Best windows"
-          subtitle="The fastest one, two and three minute windows, and the best VMG in each. Bars are comparable down a column."
-        >
-          <BestWindows
-            windows={efforts}
-            unit={unit}
-            tzOffsetMin={tz}
-            reference={{
-              speed: m.avgSpeedMps,
-              vmgUp: analysis.upwind.avgVmgMps,
-              vmgDown: analysis.downwind.avgVmgMps,
-            }}
-          />
-        </Panel>
-
         {/* -------------------------------------------------------------- timeline */}
         <Panel
-          index="08"
+          index="07"
           kicker="Segments"
           title="Every block of the session"
-          subtitle="The whole session as a timeline. Click a block to edit it; the classifier's estimate is faded until you decide."
+          subtitle="The whole session as a timeline — this is where a label gets corrected. Click a block to edit it; the classifier's estimate stays open until you decide."
         >
           <SegmentTimeline
             points={analysis.points}
@@ -485,7 +643,7 @@ function DataQuality({ record, points }: { record: SessionRecord; points: Enrich
 
   return (
     <Panel
-      index="10"
+      index="09"
       kicker="Data quality"
       title="What the importer kept and threw away"
       subtitle="Nothing is filled in or interpolated into existence."

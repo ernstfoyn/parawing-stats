@@ -170,6 +170,7 @@ export const openMeteoProvider: ServerProvider = {
       ],
       score: 0.45,
       hasWind: true,
+      hasDirection: true,
     };
     return success([station], ["Open-Meteo provides modelled wind, not station observations."]);
   },

@@ -10,7 +10,7 @@
 
 import { cleanTrack } from "../clean";
 import { buildDemoActivity, DEMO_EQUIPMENT } from "../demo";
-import { buildSegmentPlan } from "../classify";
+import { buildSegmentPlan, downwindStats } from "../classify";
 import { centroid } from "../geo";
 import { readActivityFile } from "../import";
 import { analyse } from "../pipeline";
@@ -166,9 +166,10 @@ export function buildSummary(
   metrics?: SessionMetrics,
 ): SessionSummary {
   const plan = meta?.segments ?? buildSegmentPlan([]);
-  const downwindDistanceM = plan.segments
-    .filter((s) => (s.manualLabel ?? s.auto.label) === "free_downwind" || (s.manualLabel ?? s.auto.label) === "powered_downwind")
-    .reduce((a, s) => a + s.features.distanceM, 0);
+  // The same number the session's own Downwind panel reports: real runs only, never powered
+  // reaches, and only stretches long enough to be a run. Reusing `downwindStats` keeps the list
+  // card and the dashboard from ever drifting apart.
+  const downwindDistanceM = downwindStats(plan).downwind.distanceM;
 
   const maxSpeed =
     metrics?.maxSpeedMps ??

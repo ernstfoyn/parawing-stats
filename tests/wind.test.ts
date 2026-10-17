@@ -190,7 +190,7 @@ describe("analyse() end to end", () => {
     expect(result.points).toHaveLength(cleaned.length);
     expect(result.metrics.distanceM).toBeGreaterThan(3000);
     expect(result.plan.segments.length).toBeGreaterThanOrEqual(2);
-    expect(result.dw.all.distanceM).toBeGreaterThan(2000);
+    expect(result.dw.downwind.distanceM).toBeGreaterThan(2000);
     expect(result.wind.coverage).toBeCloseTo(1, 3);
     expect(haversineM(
       { lat: result.points[0].lat, lon: result.points[0].lon },

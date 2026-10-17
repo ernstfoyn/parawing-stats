@@ -496,9 +496,11 @@
 }
 
 /* Numbered downwind candidate badge, one per downwind run on the map. */
-.dw-marker {
+.dw-marker,
+.run-badge {
   display: grid;
   place-items: center;
+  position: relative;
   width: 18px;
   height: 18px;
   border-radius: 2px;
@@ -512,16 +514,32 @@
   cursor: pointer;
 }
 
-.dw-marker[data-kind="free_downwind"] {
+/* Filled = the rider confirmed this stretch. Hollow = the classifier's candidate: the same square,
+   the same number, just not filled in yet. */
+.dw-marker[data-kind="free_downwind"],
+.run-badge[data-kind="free_downwind"] {
   background-color: var(--color-familiar);
 }
 
-.dw-marker[data-kind="powered_downwind"] {
+.dw-marker[data-kind="powered_downwind"],
+.run-badge[data-kind="powered_downwind"] {
   background-color: var(--color-origin);
 }
 
-.dw-marker[data-kind="estimate"] {
+.dw-marker[data-kind="upwind"],
+.run-badge[data-kind="upwind"] {
+  background-color: var(--color-signal);
+}
+
+.dw-marker[data-kind="estimate"],
+.run-badge[data-kind="estimate"] {
   background-color: var(--color-card);
+}
+
+.dw-marker[data-selected="true"],
+.run-badge[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--color-ink);
+  transform: scale(1.12);
 }
 
 .map-chip {
@@ -563,8 +581,14 @@
   flex: none;
 }
 
-.map-legend-line[data-dashed="true"] {
-  border-top-style: dashed;
+/* A sample of a numbered downwind badge, so the legend can say what the numbers on the map are. */
+.map-legend-badge {
+  width: 13px;
+  height: 13px;
+  border-radius: 1px;
+  border: 1px solid var(--color-ink);
+  background-color: var(--color-card);
+  flex: none;
 }
 
 .north-arrow {

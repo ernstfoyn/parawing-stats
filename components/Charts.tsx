@@ -272,15 +272,25 @@ export function SpeedHistogram({
   buckets: HistogramBucket[];
   unit: SpeedUnit;
 }) {
-  const data = useMemo(
-    () =>
-      buckets.map((b) => ({
-        label: `${convertSpeed(b.fromMps, unit).toFixed(0)}–${convertSpeed(b.toMps, unit).toFixed(0)}`,
-        mid: convertSpeed((b.fromMps + b.toMps) / 2, unit),
-        time: b.timeS,
-      })),
-    [buckets, unit],
-  );
+  const data = useMemo(() => {
+    const rows = buckets.map((b) => ({
+      label: `${convertSpeed(b.fromMps, unit).toFixed(0)}–${convertSpeed(b.toMps, unit).toFixed(0)}`,
+      mid: convertSpeed((b.fromMps + b.toMps) / 2, unit),
+      time: b.timeS,
+    }));
+    // Drop the empty buckets at both ends. A speed axis that is a third empty gutter is harder to
+    // read than one that starts and stops where the riding did, and the bucket edges still say
+    // exactly which band each bar covers.
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].time > 0) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    return first < 0 ? [] : rows.slice(first, last + 1);
+  }, [buckets, unit]);
 
   if (data.length === 0) return <ChartEmpty label="No speed distribution" />;
 

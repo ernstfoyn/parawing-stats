@@ -33,6 +33,20 @@ const BASE = process.env.FROST_BASE_URL || "https://frost.met.no";
 const ELEMENTS = ["wind_speed", "wind_from_direction"] as const;
 const OPTIONAL_ELEMENTS = ["wind_speed_of_gust", "air_temperature"] as const;
 
+/**
+ * Frost asks every client to identify itself, and a request with no User-Agent at all is the kind
+ * of thing that quietly gets throttled. Set FROST_USER_AGENT to add your own contact address.
+ */
+const USER_AGENT =
+  process.env.FROST_USER_AGENT || "FoilAnalyzer/1.0 (personal paraywing session analysis)";
+
+/**
+ * How many nearby stations to consider. Frost's `nearest(POINT(...))` returns exactly ONE source
+ * unless `nearestmaxcount` is set, and a single nearest station is a bad bet: it is often a rooftop
+ * gauge in shelter, or silent for the hour in question.
+ */
+const NEAREST_MAX_COUNT = 12;
+
 export function frostConfigured(): boolean {
   return Boolean(process.env.FROST_CLIENT_ID);
 }
@@ -40,6 +54,10 @@ export function frostConfigured(): boolean {
 function authHeader(): string {
   const id = process.env.FROST_CLIENT_ID ?? "";
   return `Basic ${Buffer.from(`${id}:`).toString("base64")}`;
+}
+
+function frostHeaders(): Record<string, string> {
+  return { Authorization: authHeader(), Accept: "application/json", "User-Agent": USER_AGENT };
 }
 
 function isoTime(t: number): string {
@@ -117,28 +135,62 @@ function parseSources(json: unknown): FrostCandidate[] {
   return out;
 }
 
-/** Count the wind observations each source has inside the session window. */
-function parseObservationCounts(json: unknown): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (!isRecord(json) || !Array.isArray(json.data)) return counts;
+/** What a candidate station actually reports inside the session window. */
+interface Coverage {
+  /** distinct observation times carrying a wind speed */
+  windTimes: Set<number>;
+  /** distinct observation times carrying a wind direction */
+  directionTimes: Set<number>;
+  gustTimes: Set<number>;
+  temperatureTimes: Set<number>;
+}
+
+function parseCoverage(json: unknown): Map<string, Coverage> {
+  const out = new Map<string, Coverage>();
+  if (!isRecord(json) || !Array.isArray(json.data)) return out;
   for (const row of json.data) {
     if (!isRecord(row)) continue;
     const sourceId = typeof row.sourceId === "string" ? row.sourceId : null;
     if (!sourceId) continue;
     if (!Array.isArray(row.observations)) continue;
-    const hasWind = row.observations.some(
-      (o) =>
-        isRecord(o) &&
-        (o.elementId === "wind_speed" || o.elementId === "wind_from_direction") &&
-        typeof o.value === "number",
-    );
-    if (hasWind) {
-      // Frost reports parallel sensors as "SN12345:0"; the station id is the part before the colon.
-      const base = sourceId.split(":")[0];
-      counts.set(base, (counts.get(base) ?? 0) + 1);
+    const t = typeof row.referenceTime === "string" ? Date.parse(row.referenceTime) : NaN;
+    if (!Number.isFinite(t)) continue;
+
+    // Frost reports parallel sensors and several timeseries as "SN12345:0", "SN12345:1"; the station
+    // is the part before the colon. Counting distinct *times* rather than raw rows keeps the
+    // coverage numbers honest when a station publishes the same value twice.
+    const base = sourceId.split(":")[0];
+    const cov =
+      out.get(base) ??
+      {
+        windTimes: new Set<number>(),
+        directionTimes: new Set<number>(),
+        gustTimes: new Set<number>(),
+        temperatureTimes: new Set<number>(),
+      };
+    for (const o of row.observations) {
+      if (!isRecord(o) || typeof o.value !== "number") continue;
+      switch (o.elementId) {
+        case "wind_speed":
+          cov.windTimes.add(t);
+          break;
+        case "wind_from_direction":
+          cov.directionTimes.add(t);
+          break;
+        case "wind_speed_of_gust":
+        case "max(wind_speed PT1H)":
+          cov.gustTimes.add(t);
+          break;
+        case "air_temperature":
+          cov.temperatureTimes.add(t);
+          break;
+        default:
+          break;
+      }
     }
+    out.set(base, cov);
   }
-  return counts;
+  return out;
 }
 
 function parseObservations(json: unknown, stationId: string, quality: "measured"): WindSample[] {
@@ -200,7 +252,7 @@ async function requestObservations(
     levels: "default",
     timeoffsets: "default",
   };
-  const headers = { Authorization: authHeader(), Accept: "application/json" };
+  const headers = frostHeaders();
 
   let res = await fetchJson(
     `${BASE}/observations/v0.jsonld?${new URLSearchParams({ ...common, elements: [...ELEMENTS, ...OPTIONAL_ELEMENTS].join(",") })}`,
@@ -237,26 +289,29 @@ export const frostProvider: ServerProvider = {
     }
 
     const point = `${query.lon} ${query.lat}`;
+    // Frost wants `SensorSystem` here: "Observations" is a valid type on the *observations*
+    // resource only, and asking for it on /sources returns a 400 whose message points at the type,
+    // not at anything wrong with the query. `nearestmaxcount` is what turns the single nearest
+    // station into a shortlist worth ranking.
     const params = new URLSearchParams({
-      types: "Observations",
+      types: "SensorSystem",
       geometry: `nearest(POINT(${point}))`,
+      nearestmaxcount: String(NEAREST_MAX_COUNT),
       elements: [...ELEMENTS].join(","),
     });
 
-    let res = await fetchJson(`${BASE}/sources/v0.jsonld?${params}`, {
-      headers: { Authorization: authHeader(), Accept: "application/json" },
-    });
+    let res = await fetchJson(`${BASE}/sources/v0.jsonld?${params}`, { headers: frostHeaders() });
     if (!res.ok) return { ok: false, failure: res.failure };
 
     if (res.status === 400) {
-      // Some Frost deployments are picky about `elements` on the sources resource.
+      // Older Frost deployments are picky about `elements` on the sources resource; geometry and
+      // type are the parts that decide the answer, so retry with just those.
       const retry = new URLSearchParams({
-        types: "Observations",
+        types: "SensorSystem",
         geometry: `nearest(POINT(${point}))`,
+        nearestmaxcount: String(NEAREST_MAX_COUNT),
       });
-      res = await fetchJson(`${BASE}/sources/v0.jsonld?${retry}`, {
-        headers: { Authorization: authHeader(), Accept: "application/json" },
-      });
+      res = await fetchJson(`${BASE}/sources/v0.jsonld?${retry}`, { headers: frostHeaders() });
       if (!res.ok) return { ok: false, failure: res.failure };
     }
 
@@ -290,7 +345,7 @@ export const frostProvider: ServerProvider = {
     }
 
     // One request for every candidate, so we know who really has data for this hour.
-    const counts = new Map<string, number>();
+    const coverage = new Map<string, Coverage>();
     if (scope.length > 0) {
       const obs = await requestObservations(
         scope.map((s) => s.c.id),
@@ -298,20 +353,38 @@ export const frostProvider: ServerProvider = {
         query.to,
       );
       if (obs.ok) {
-        for (const [id, n] of parseObservationCounts(obs.data)) counts.set(id, n);
+        for (const [id, cov] of parseCoverage(obs.data)) coverage.set(id, cov);
       } else {
         notes.push(`Could not check observation coverage: ${obs.failure.error}`);
       }
     }
 
     const stations: StationRef[] = scope.map(({ c, distanceKm }) => {
-      const observations = counts.get(c.id) ?? 0;
+      const cov = coverage.get(c.id);
+      const windTimes = cov?.windTimes.size ?? 0;
+      const directionTimes = cov?.directionTimes.size ?? 0;
+      const hasWind = windTimes > 0;
+      const hasDirection = directionTimes > 0;
+
+      const elements: string[] = [];
+      if (windTimes > 0) elements.push("wind_speed");
+      if (directionTimes > 0) elements.push("wind_from_direction");
+      if ((cov?.gustTimes.size ?? 0) > 0) elements.push("wind_speed_of_gust");
+      if ((cov?.temperatureTimes.size ?? 0) > 0) elements.push("air_temperature");
+
       const reasons: string[] = [];
       if (distanceKm != null) reasons.push(`${distanceKm.toFixed(1)} km from the centre of your track.`);
-      if (observations > 0) {
-        reasons.push(`${observations} wind observation(s) inside your session window.`);
+      if (hasWind) {
+        reasons.push(`${windTimes} wind observation(s) inside your session window.`);
       } else {
         reasons.push("No wind observations in your session window.");
+      }
+      // Direction is the element that decides what is downwind and what is upwind, so a station
+      // without it is a much weaker candidate even though it does report a wind speed.
+      if (hasWind && !hasDirection) {
+        reasons.push(
+          "Reports wind speed but not wind direction, so true wind angle and VMG cannot be derived from it.",
+        );
       }
       if (c.masl != null) {
         reasons.push(
@@ -335,10 +408,19 @@ export const frostProvider: ServerProvider = {
         lon: c.lon,
         elevationM: c.masl,
         distanceKm,
-        elements: observations > 0 ? ["wind_speed", "wind_from_direction", ...OPTIONAL_ELEMENTS] : [],
+        elements,
         reasons,
-        score: scoreStation({ distanceKm, observations, masl: c.masl, name: c.name, validTo: c.validTo, from: query.from }),
-        hasWind: observations > 0,
+        score: scoreStation({
+          distanceKm,
+          observations: windTimes,
+          hasDirection,
+          masl: c.masl,
+          name: c.name,
+          validTo: c.validTo,
+          from: query.from,
+        }),
+        hasWind,
+        hasDirection,
       } satisfies StationRef;
     });
 
@@ -368,20 +450,24 @@ export const frostProvider: ServerProvider = {
 };
 
 /**
- * Ranking. Having data for the session is the single strongest signal; after that, proximity,
- * a coastal (low) elevation and an exposed-sounding name win. The weight of every term is small
- * and additive so the ordering stays predictable and explainable.
+ * Ranking. Having wind data for the session is the single strongest signal; reporting a *direction*
+ * is a close second, because without it there is no true wind angle, no VMG and no way to tell a
+ * downwind run from an upwind beat. After that, proximity, a coastal (low) elevation and an
+ * exposed-sounding name win. Every term is small and additive so the ordering stays predictable and
+ * explainable.
  */
 export function scoreStation(input: {
   distanceKm: number | null;
   observations: number;
+  hasDirection: boolean;
   masl: number | null;
   name: string;
   validTo: number | null;
   from: number;
 }): number {
   let score = 0;
-  if (input.observations > 0) score += 0.45;
+  if (input.observations > 0) score += 0.34;
+  if (input.hasDirection) score += 0.17;
   if (input.distanceKm != null) score += 0.3 * Math.exp(-input.distanceKm / 12);
   if (input.masl != null) {
     if (input.masl <= 30) score += 0.12;
