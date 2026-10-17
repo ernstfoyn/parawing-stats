@@ -86,6 +86,7 @@ export function syntheticMeta(samples: RawSample[], opts: SyntheticOptions = {})
     sport: "windsurfing",
     device: "synthetic",
     creator: null,
+    title: null,
     timerStart: samples[0]?.t ?? null,
     timerEnd: samples[samples.length - 1]?.t ?? null,
     pauses: (opts.pauses ?? []).map((p) => ({ start: p.start, end: p.end })),

@@ -144,7 +144,10 @@ export function parseGpx(text: string, fileName = "activity.gpx"): ParsedActivit
     fileName,
     fileHash: "",
     sport: findText(root, ["type", "sport"]) ?? null,
-    device: findText(root, ["name"]) ?? null,
+    // The first `<name>` in a GPX is the track's own name, not the device making it: a Garmin
+    // writes "Rygge SUP-surfing" there. The device is only ever in `<creator>`.
+    title: findText(root, ["name"]) ?? null,
+    device: null,
     creator: findText(root, ["creator"]) ?? null,
     timerStart: samples[0].t,
     timerEnd: samples[samples.length - 1].t,

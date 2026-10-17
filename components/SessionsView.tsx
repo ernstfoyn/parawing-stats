@@ -21,6 +21,7 @@ import {
 import { usingFallbackStorage } from "@/lib/storage/db";
 import { formatDistance, formatDuration, formatSpeed, formatDateInOffset } from "@/lib/units";
 import type { SessionSummary } from "@/lib/types";
+import AppHeader from "./AppHeader";
 import { Chip, EmptyState, Note, Panel, Spinner } from "./ui";
 
 type Feedback =
@@ -117,14 +118,9 @@ export default function SessionsView() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-16 pt-10 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-8 sm:px-6">
+      <AppHeader />
       <header className="mb-8">
-        <div className="mono mb-3 flex items-center gap-2 text-[0.62rem] uppercase tracking-[0.18em] text-grey">
-          <span className="inline-block size-2 bg-signal" />
-          Parawing stats
-          <span className="text-quiet">/</span>
-          Local only
-        </div>
         <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-tight text-ink sm:text-5xl">
           Parawing <span className="text-grey">/ wingfoil &amp; downwind session analysis</span>
         </h1>

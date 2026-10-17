@@ -28,6 +28,7 @@ import type {
   WindModel,
   WindSample,
 } from "../types";
+import { suggestActivityName } from "../naming";
 import { describeWindSource } from "../summary";
 import { getAll, get, getByIndex, put, remove, STORES } from "./db";
 
@@ -57,6 +58,8 @@ export interface StoredSession {
   sport: string | null;
   device: string | null;
   creator: string | null;
+  /** the activity's own name from the file, kept for the suggested session name */
+  title: string | null;
   startedAt: number;
   endedAt: number;
   timezoneOffsetMin: number | null;
@@ -80,11 +83,12 @@ export function mergeSession(stored: StoredSession, meta: SessionMeta | null): S
     fileHash: stored.fileHash,
     fileName: stored.fileName,
     importedAt: stored.importedAt,
-    name: meta?.name ?? defaultName(stored),
+    name: pickName(stored, meta),
     format: stored.format,
     sport: stored.sport,
     device: stored.device,
     creator: stored.creator,
+    title: stored.title,
     startedAt: stored.startedAt,
     endedAt: stored.endedAt,
     timezoneOffsetMin: stored.timezoneOffsetMin,
@@ -103,14 +107,43 @@ export function mergeSession(stored: StoredSession, meta: SessionMeta | null): S
   };
 }
 
+/** The rider's own name if they gave one, the suggestion otherwise, upgrading an old file-dump. */
+function pickName(stored: StoredSession, meta: SessionMeta | null): string {
+  const stored_ = meta?.name?.trim();
+  if (!stored_) return defaultName(stored);
+  if (stored_ === legacyDefaultName(stored)) return defaultName(stored);
+  return stored_;
+}
+
 export function emptyWindModel(): WindModel {
   return { kind: "none", station: null, manual: null, maxGapS: 5400, interpolate: true };
 }
 
+/**
+ * The name a session gets when the rider has not given it one: the date they were out, and the place
+ * the file says they were, e.g. "15 Oct 2026 · Rygge".
+ */
 function defaultName(stored: StoredSession): string {
-  const date = new Date(stored.startedAt);
-  const iso = date.toISOString().slice(0, 10);
-  return stored.demo ? `Demo session ${iso}` : `${iso} ${stored.fileName.replace(/\.(fit|gpx)$/i, "")}`;
+  if (stored.demo) return "Demo: Jæren parawing session (synthetic)";
+  return suggestActivityName({
+    startedAt: stored.startedAt,
+    timezoneOffsetMin: stored.timezoneOffsetMin,
+    title: stored.title,
+    fileName: stored.fileName,
+  });
+}
+
+/**
+ * What the name *used* to default to, back when it was built from the file name.
+ *
+ * Sessions imported before that changed carry a name like "2026-10-15 activity_24736830361". Those
+ * are device dumps rather than names, and the rider never chose them, so they are silently upgraded
+ * to the new suggestion. A name that is anything else is theirs and is never touched.
+ */
+function legacyDefaultName(stored: StoredSession): string | null {
+  if (stored.demo) return null;
+  const iso = new Date(stored.startedAt).toISOString().slice(0, 10);
+  return `${iso} ${stored.fileName.replace(/\.(fit|gpx)$/i, "")}`;
 }
 
 /** Build the storage halves for a freshly imported activity. */
@@ -122,6 +155,7 @@ export function buildStoredSession(input: {
   sport: string | null;
   device: string | null;
   creator: string | null;
+  title: string | null;
   timezoneOffsetMin: number | null;
   points: TrackPoint[];
   cleanup: CleanupReport;
@@ -147,6 +181,7 @@ export function buildStoredSession(input: {
     sport: input.sport,
     device: input.device,
     creator: input.creator,
+    title: input.title,
     startedAt,
     endedAt,
     timezoneOffsetMin: input.timezoneOffsetMin,
@@ -362,6 +397,7 @@ export function demoSessionRecord(id = "demo-session"): SessionRecord {
     sport: "windsurfing",
     device: "Garmin (synthetic demo)",
     creator: "synthetic",
+    title: "Jæren parawing demo",
     startedAt,
     endedAt,
     timezoneOffsetMin: 120,
@@ -402,6 +438,7 @@ export function normaliseImport(input: {
     sport: input.sport,
     device: input.device,
     creator: input.creator,
+    title: input.meta?.title ?? null,
     timezoneOffsetMin: report.timezoneOffsetMin,
     points,
     cleanup: report,

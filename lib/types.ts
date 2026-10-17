@@ -46,6 +46,14 @@ export interface RawActivityMeta {
   sport: string | null;
   device: string | null;
   creator: string | null;
+  /**
+   * The activity's own name as the file recorded it, e.g. "Rygge SUP-surfing".
+   *
+   * This is what a Garmin puts in `<trk><name>` and a FIT session carries in its name field, and it
+   * is the only place a GPS file says *where* the rider was. It is kept verbatim: turning it into a
+   * place name is `lib/naming.ts`'s job, and that must be able to decline.
+   */
+  title: string | null;
   /** timer start/stop from the device, when available */
   timerStart: number | null;
   timerEnd: number | null;
@@ -357,6 +365,8 @@ export interface SessionRecord {
   sport: string | null;
   device: string | null;
   creator: string | null;
+  /** the activity's own name from the file, e.g. "Rygge SUP-surfing" */
+  title: string | null;
   startedAt: number;
   endedAt: number;
   /** minutes east of UTC used for display. null = use the browser timezone */

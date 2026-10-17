@@ -145,6 +145,7 @@ export function parseFit(bytes: ArrayBuffer, fileName = "activity.fit"): ParsedA
     sport,
     device,
     creator: textValue(fileId?.manufacturer) ?? null,
+    title: textValue(session?.name) ?? null,
     timerStart: toEpochMs(session?.startTime) ?? samples[0].t,
     timerEnd: samples[samples.length - 1].t,
     pauses,

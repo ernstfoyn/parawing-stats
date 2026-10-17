@@ -186,6 +186,7 @@ export function generateDemoRaw(): { samples: RawSample[]; meta: RawActivityMeta
     sport: "windsurfing",
     device: "Garmin (synthetic demo)",
     creator: "synthetic",
+    title: "Jæren parawing demo",
     timerStart: samples[0].t,
     timerEnd: samples[samples.length - 1].t,
     pauses: [{ start: pauseStart, end: pauseStart + 48_000 }],
