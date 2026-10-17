@@ -21,8 +21,8 @@ async function SessionRoute({ params }: { params: Promise<{ id: string }> }) {
 function RouteFallback() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-      <div className="flex items-center gap-2 text-xs text-fog">
-        <span className="size-3.5 animate-spin rounded-full border-2 border-line border-t-accent" />
+      <div className="mono flex items-center gap-2 text-[0.66rem] uppercase tracking-[0.1em] text-grey">
+        <span className="size-3 animate-spin rounded-full border-2 border-quiet border-t-signal" />
         Opening session…
       </div>
     </div>

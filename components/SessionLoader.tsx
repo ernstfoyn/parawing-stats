@@ -45,15 +45,14 @@ export default function SessionLoader({ id }: { id: string }) {
       </div>
     );
   }
-
   if (state.status !== "ready") {
     return (
       <div className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
         <div className="panel px-5 py-6">
-          <h1 className="text-lg font-semibold text-snow">
+          <h1 className="text-lg font-semibold text-ink">
             {state.status === "missing" ? "Session not found" : "Could not open the session"}
           </h1>
-          <p className="mt-1 text-sm text-fog">
+          <p className="mt-1 text-sm text-grey">
             {state.status === "missing"
               ? "This session is not in this browser's storage. It may have been imported on another device or deleted."
               : state.message}

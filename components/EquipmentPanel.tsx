@@ -43,7 +43,9 @@ export default function EquipmentPanel({
 
   return (
     <Panel
-      title="Equipment"
+      index="09"
+      kicker="Equipment"
+      title="What you rode"
       subtitle={open ? undefined : summary}
       actions={
         <>
@@ -66,7 +68,7 @@ export default function EquipmentPanel({
             <span key={p.id} className="inline-flex items-center">
               <button
                 type="button"
-                className="btn btn-ghost !rounded-r-none"
+                className="btn btn-ghost !rounded-r-none !border-r-0"
                 title="Load this preset into the session"
                 onClick={() => onChange({ ...p })}
               >
@@ -74,7 +76,7 @@ export default function EquipmentPanel({
               </button>
               <button
                 type="button"
-                className="btn btn-ghost !rounded-l-none !px-2 text-fog"
+                className="btn btn-ghost !rounded-l-none !px-2 text-grey"
                 title="Delete this preset"
                 onClick={() => onDeletePreset(p.id)}
               >
@@ -86,7 +88,7 @@ export default function EquipmentPanel({
       )}
 
       {!open ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
           <Row label="Parawing" value={`${equipment.parawingBrand} ${equipment.parawingModel}`.trim()} />
           <Row label="Size" value={equipment.parawingSizeM2 ? `${equipment.parawingSizeM2} m²` : ""} />
           <Row label="Foil" value={equipment.foilModel || equipment.foilSize} />
@@ -178,12 +180,12 @@ export default function EquipmentPanel({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn"
+              className="btn btn-primary"
               onClick={() => onSavePreset({ ...equipment, id: equipment.id || blank().id })}
             >
               Save as preset
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => onChange(blank())}>
+            <button type="button" className="btn" onClick={() => onChange(blank())}>
               New profile
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => onChange({ ...EMPTY_EQUIPMENT })}>
@@ -199,8 +201,8 @@ export default function EquipmentPanel({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[0.62rem] font-semibold uppercase tracking-[0.07em] text-fog">{label}</dt>
-      <dd className="tabular-nums text-mist">{value || "—"}</dd>
+      <dt className="label mb-0.5">{label}</dt>
+      <dd className="mono text-[0.76rem] text-ink">{value || "—"}</dd>
     </div>
   );
 }

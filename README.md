@@ -14,16 +14,22 @@ code is a thin weather proxy that keeps API credentials out of the client bundle
 - **Import** `.fit` and `.gpx` files in the browser. Duplicate timestamps, GPS spikes, timer pauses,
   gaps and missing fixes are detected and reported — never silently invented or interpolated over.
 - **Track map** with the whole session coloured per segment: upwind, powered downwind, confirmed
-  free (packed-wing) downwind, unclassified. Start/finish markers, a wind arrow, hover/tap readouts
-  (time, speed, heading, TWA, VMG) and the longest downwind run highlighted.
+  free (packed-wing) downwind, unclassified. Start/finish markers, a numbered badge on every
+  downwind run, a wind arrow, a legend, a north arrow and a scale bar, hover/tap readouts
+  (time, speed, heading, TWA, VMG), and the longest downwind run highlighted.
 - **Wind** fetched automatically from **MET Norway Frost** (measured station observations) when a
   key is configured, with **Open-Meteo** (modelled reanalysis, clearly labelled) and **manual
   entry** as alternatives. Nearest first, station search and override, and a plain statement of
   which station was used and how far away it was.
 - **Metrics** time-weighted over the real timestamps (never assuming a fixed sample interval):
   distance, moving time, average/max speed, upwind and downwind time and distance, VMG distributions.
-- **Downwind segments** auto-suggested as a complete tiling of the track, then editable by hand —
+- **Downwind runs** auto-suggested as a complete tiling of the track, then editable by hand —
   split, merge, mark free / powered / excluded. Corrections persist and the stats recompute instantly.
+  The confirmed and suggested runs are also listed as a table (start, distance, duration, speed in
+  your unit **and** in m/s, VMG), row-clickable to open that run on the map.
+- **Best efforts**: the fastest one, two and three minute windows of the session and the best upwind
+  and downwind VMG in each, with the session average marked on every bar so a "best" has something
+  to be best against.
 - **Equipment profiles** for the wing, foil and stabiliser, so sessions can be compared later.
 - **Demo activity**: a deterministic, clearly-labelled synthetic session so you can explore the app
   before you have a file to hand.
@@ -96,10 +102,29 @@ suggestions are drawn dashed on the map but never presented as fact.
 
 ## Basemap
 
-The map uses [OpenFreeMap](https://openfreemap.org)'s keyless **dark** style (OpenStreetMap data
-vectorised by OpenMapTiles). No API key, no account, and no per-view billing; the style ships its own
-attribution, which MapLibre shows in the corner. If you would rather run your own tiles, change the
-single `BASEMAP_STYLE` constant in `components/MapView.tsx`.
+The map uses [OpenFreeMap](https://openfreemap.org)'s keyless **positron** style — a pale, almost
+unlabelled surface (OpenStreetMap data vectorised by OpenMapTiles) so the track carries all of the
+colour on the paper background. No API key, no account, and no per-view billing; the style ships its
+own attribution, which MapLibre shows in the corner. If you would rather run your own tiles, change
+the single `BASEMAP_STYLE` constant in `components/MapView.tsx`.
+
+## Design
+
+The visual language is a printed specimen sheet: a warm paper surface with a faint drafting grid,
+hairline rules, registration crop marks at the panel corners, a numbered bracket tag on every panel
+(`01 / WIND`, `02 / TRACK`, …) and mostly monospaced labels.
+
+Two self-hosted, SIL-OFL licensed families do the work, loaded from `@fontsource` so there is no
+third-party request at runtime:
+
+- **Open Sauce Two** for headings and the large stat values,
+- **Space Mono** for labels, units, chips, table figures and map chrome.
+
+Colour is semantic, not decorative. Signal green is ordinary sailing (upwind), Soft Origin is
+downwind with the parawing still flying, Familiar Tone is the free / packed-wing run, and everything
+the app is unsure about is a neutral grey. All of it is defined once as tokens in `app/globals.css`,
+so a colour change is a one-line change. The accent hexes are repeated in `lib/summary.ts` as
+`SEGMENT_COLORS` because map lines need darker values than a pale basemap allows.
 
 ## Project layout
 
@@ -108,18 +133,20 @@ app/
   page.tsx                     sessions overview + import
   sessions/[id]/page.tsx       one session (params read inside <Suspense>)
   api/weather/{providers,stations,observations}/route.ts
-components/                    dashboard, map, charts, timeline, wind + equipment panels
+components/                    dashboard, map, charts, runs table, best windows, timeline,
+                               wind + equipment panels, shared ui primitives
 lib/
   geo.ts units.ts              haversine/bearing/circular maths, unit conversion
   import/{fit,gpx,index}.ts    file → RawSample[] + metadata
   clean.ts                     dedupe, spike/outlier rejection, pauses, gaps, distance
   metrics.ts                   time-weighted statistics and distributions
+  bestWindows.ts               best 1/2/3-minute speed and VMG windows
   wind/                        provider interface, alignment, server providers, client
   classify.ts                  downwind detection + split/merge/relabel editing
   summary.ts                   shared labels, colours and wind-source wording
   storage/                     IndexedDB store (localStorage fallback) + hash dedupe
   demo.ts                      deterministic synthetic session
-tests/                         9 suites, 150 tests
+tests/                         10 suites, 162 tests
 ```
 
 Each `lib/` module is pure and independently tested: the same code runs in the browser (so edits

@@ -4,12 +4,15 @@
  * Track map.
  *
  * MapLibre is imported dynamically inside an effect so it never touches the server bundle and
- * never breaks SSR. The base map is OpenFreeMap's keyless dark style and the track is drawn as one
- * GeoJSON line per segment, coloured by its label. Automatic (not yet confirmed) downwind segments
- * are dashed so the rider can always tell an estimate from a decision they made.
+ * never breaks SSR. The base map is OpenFreeMap's keyless *positron* style — a pale, almost
+ * unlabelled surface that lets the track carry all of the colour. The track is drawn as one GeoJSON
+ * line per segment; automatic (not yet confirmed) segments are dashed so a rider can always tell an
+ * estimate from a decision they made.
  *
- * Start, finish and the wind arrow are HTML markers rather than symbol layers: they are annotations
- * about the session, not map geometry, and they keep working when the base style changes.
+ * Start, finish, the wind arrow and the numbered downwind badges are HTML markers rather than symbol
+ * layers: they are annotations about the session, not map geometry, and they keep working when the
+ * base style changes. The numbers match the rows of the downwind table exactly, because both read
+ * the same `downwindRuns` list.
  *
  * The worker must be served explicitly (see `WORKER_URL`): MapLibre v6 derives its worker path from
  * `import.meta.url`, which a bundler cannot satisfy.
@@ -22,18 +25,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MlMap, Marker as MlMarker, Popup as MlPopup } from "maplibre-gl";
 import { effectiveLabel } from "@/lib/classify";
-import { segmentColor } from "@/lib/summary";
+import { downwindRuns, LEGEND_ORDER, segmentColor, SEGMENT_LABEL_TEXT } from "@/lib/summary";
 import { compassPoint, formatSpeed, formatTimeInOffset, type SpeedUnit } from "@/lib/units";
 import type { EnrichedPoint, SegmentLabel, SegmentPlan } from "@/lib/types";
 
-const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 
 const SOURCE_TRACK = "fa-track";
-const SOURCE_HIGHLIGHT = "fa-highlight";
+const SOURCE_CASING = "fa-casing";
 const LAYER_HALO = "fa-halo";
+const LAYER_CASING = "fa-casing-layer";
 const LAYER_DASHED = "fa-dashed";
 const LAYER_SOLID = "fa-solid";
-const LAYER_SELECTED = "fa-selected";
 
 /**
  * MapLibre v6 cannot infer its worker URL under a bundler (it derives a sibling path from
@@ -128,7 +131,8 @@ function buildTooltip(
   const root = document.createElement("div");
   const head = document.createElement("div");
   head.textContent = label.replace(/_/g, " ");
-  head.style.cssText = "font-weight:600;margin-bottom:4px;text-transform:capitalize";
+  head.style.cssText =
+    "font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em;font-size:10px";
   root.appendChild(head);
 
   const rows: [string, string][] = [
@@ -141,13 +145,13 @@ function buildTooltip(
   ];
   for (const [k, v] of rows) {
     const line = document.createElement("div");
-    line.style.cssText = "display:flex;gap:10px;justify-content:space-between;line-height:1.5";
+    line.style.cssText = "display:flex;gap:14px;justify-content:space-between;line-height:1.55";
     const a = document.createElement("span");
     a.textContent = k;
-    a.style.color = "#7d90a8";
+    a.style.color = "#7b7870";
     const b = document.createElement("span");
     b.textContent = v;
-    b.style.cssText = "font-variant-numeric:tabular-nums";
+    b.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700";
     line.append(a, b);
     root.appendChild(line);
   }
@@ -158,11 +162,11 @@ function markerElement(text: string, color: string): HTMLDivElement {
   const el = document.createElement("div");
   el.style.cssText = "display:flex;align-items:center;gap:4px;pointer-events:none";
   const pin = document.createElement("span");
-  pin.style.cssText = `width:10px;height:10px;border-radius:999px;background:${color};border:2px solid #061019;box-shadow:0 0 0 2px ${color}55`;
+  pin.style.cssText = `width:9px;height:9px;border-radius:999px;background:${color};border:1.5px solid #121211`;
   const label = document.createElement("span");
   label.textContent = text;
   label.style.cssText =
-    "font-size:10px;font-weight:600;letter-spacing:0.04em;color:#e9f1fa;background:#0b131fcc;border:1px solid #22324a;border-radius:999px;padding:1px 6px;text-transform:uppercase";
+    "font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:0.06em;color:#121211;background:#faf9f6;border:1px solid #121211;border-radius:2px;padding:0 4px;text-transform:uppercase";
   el.append(pin, label);
   return el;
 }
@@ -200,19 +204,33 @@ export default function MapView(props: MapViewProps) {
     }));
   }, [points, plan, selectedId, highlightId]);
 
-  const highlightFeatures = useMemo(
-    () => features.filter((f) => f.properties.highlight),
+  const casingFeatures = useMemo(
+    () => features.filter((f) => f.properties.highlight || f.properties.selected),
     [features],
   );
+
+  const runs = useMemo(() => downwindRuns(plan.segments, points), [plan, points]);
+
+  /** Stable signature so the marker layer is rebuilt only when it actually changes. */
+  const markerKey = useMemo(
+    () => runs.map((r) => `${r.n}:${r.segment.id}:${r.label}`).join("|") + `#${points.length}`,
+    [runs, points.length],
+  );
+
+  const legend = useMemo(() => {
+    const seen = new Set<SegmentLabel>();
+    for (const seg of plan.segments) seen.add(effectiveLabel(seg));
+    return LEGEND_ORDER.filter((l) => seen.has(l));
+  }, [plan]);
 
   const syncData = useCallback(
     (map: MlMap) => {
       const track = map.getSource(SOURCE_TRACK) as { setData: (d: unknown) => void } | undefined;
-      const halo = map.getSource(SOURCE_HIGHLIGHT) as { setData: (d: unknown) => void } | undefined;
+      const casing = map.getSource(SOURCE_CASING) as { setData: (d: unknown) => void } | undefined;
       track?.setData({ type: "FeatureCollection", features });
-      halo?.setData({ type: "FeatureCollection", features: highlightFeatures });
+      casing?.setData({ type: "FeatureCollection", features: casingFeatures });
     },
-    [features, highlightFeatures],
+    [features, casingFeatures],
   );
 
   const fitToTrack = useCallback((map: MlMap) => {
@@ -241,8 +259,6 @@ export default function MapView(props: MapViewProps) {
   /** Late-bound references so the create-once effect can call the newest versions. */
   const syncDataRef = useRef(syncData);
   const fitToTrackRef = useRef(fitToTrack);
-  /** Marker rebuild is debounced to the point count so a relabel never re-creates markers. */
-  const markerKey = points.length;
 
   /* ------------------------------------------------------------------- effects */
 
@@ -287,17 +303,28 @@ export default function MapView(props: MapViewProps) {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
         });
-        map.addSource(SOURCE_HIGHLIGHT, {
+        map.addSource(SOURCE_CASING, {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
         });
 
+        // Order matters, bottom first: a pale casing lifts the longest downwind run off the map,
+        // then a dark casing marks the selected segment, then the coloured track on top.
         map.addLayer({
           id: LAYER_HALO,
           type: "line",
-          source: SOURCE_HIGHLIGHT,
+          source: SOURCE_CASING,
+          filter: ["==", ["get", "highlight"], true],
           layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": "#e9f1fa", "line-width": 10, "line-opacity": 0.28 },
+          paint: { "line-color": "#faf9f6", "line-width": 11, "line-opacity": 1 },
+        });
+        map.addLayer({
+          id: LAYER_CASING,
+          type: "line",
+          source: SOURCE_CASING,
+          filter: ["==", ["get", "selected"], true],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#121211", "line-width": 8, "line-opacity": 0.9 },
         });
         map.addLayer({
           id: LAYER_DASHED,
@@ -309,7 +336,7 @@ export default function MapView(props: MapViewProps) {
             "line-color": ["get", "color"],
             "line-width": ["case", ["get", "highlight"], 5.5, 3.2],
             "line-dasharray": [2, 2],
-            "line-opacity": 0.95,
+            "line-opacity": 0.9,
           },
         });
         map.addLayer({
@@ -320,20 +347,12 @@ export default function MapView(props: MapViewProps) {
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": ["get", "color"],
-            "line-width": ["case", ["get", "highlight"], 6, 3.4],
+            "line-width": ["case", ["get", "highlight"], 5.5, 3.2],
           },
-        });
-        map.addLayer({
-          id: LAYER_SELECTED,
-          type: "line",
-          source: SOURCE_TRACK,
-          filter: ["==", ["get", "selected"], true],
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.55 },
         });
 
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-        map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+        map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
 
         syncDataRef.current(map);
         fitToTrackRef.current(map);
@@ -400,7 +419,7 @@ export default function MapView(props: MapViewProps) {
     fitToTrack(map);
   }, [ready, points, fitToTrack]);
 
-  // Start / finish / wind-arrow markers.
+  // Start / finish / wind arrow / numbered downwind badges.
   useEffect(() => {
     let cancelled = false;
     const map = mapRef.current;
@@ -415,13 +434,34 @@ export default function MapView(props: MapViewProps) {
       const start = points[0];
       const end = points[points.length - 1];
       markersRef.current.push(
-        new maplibregl.Marker({ element: markerElement("Start", "#2dd4bf"), anchor: "left" })
+        new maplibregl.Marker({ element: markerElement("Start", "#14a45c"), anchor: "left" })
           .setLngLat([start.lon, start.lat])
           .addTo(map),
-        new maplibregl.Marker({ element: markerElement("Finish", "#f97316"), anchor: "left" })
+        new maplibregl.Marker({ element: markerElement("Finish", "#e0763a"), anchor: "left" })
           .setLngLat([end.lon, end.lat])
           .addTo(map),
       );
+
+      // Numbered downwind candidates. The number is the same one the table shows.
+      for (const run of runs) {
+        const mid = Math.floor((run.segment.startIdx + run.segment.endIdx) / 2);
+        const at = points[mid];
+        if (!at) continue;
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "dw-marker";
+        el.textContent = String(run.n);
+        el.dataset.kind = run.segment.manualLabel == null ? "estimate" : run.label;
+        const f = run.segment.features;
+        el.title = `Run ${run.n} · ${SEGMENT_LABEL_TEXT[run.label]} · ${(f.distanceM / 1000).toFixed(2)} km · ${Math.round(f.durationS)} s`;
+        el.addEventListener("click", (event) => {
+          event.stopPropagation();
+          dataRef.current.onSelect(run.segment.id);
+        });
+        markersRef.current.push(
+          new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([at.lon, at.lat]).addTo(map),
+        );
+      }
 
       if (wind?.dirFromDeg != null) {
         const center = points[Math.floor(points.length / 2)];
@@ -434,7 +474,7 @@ export default function MapView(props: MapViewProps) {
         el.innerHTML = `
           <div class="wind-arrow-glyph">
             <svg width="30" height="30" viewBox="0 0 34 34" style="transform: rotate(${dir}deg)">
-              <path d="M17 3 L24 26 L17 21 L10 26 Z" fill="#38bdf8" stroke="#061019" stroke-width="1.2" stroke-linejoin="round"/>
+              <path d="M17 3 L24 26 L17 21 L10 26 Z" fill="#0f7c7c" stroke="#faf9f6" stroke-width="1.5" stroke-linejoin="round"/>
             </svg>
           </div>
           <div class="wind-arrow-label">${compassPoint(dir)} ${Math.round(dir)}°</div>`;
@@ -449,7 +489,7 @@ export default function MapView(props: MapViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [markerKey, points, wind?.dirFromDeg, ready]);
+  }, [markerKey, points, runs, wind?.dirFromDeg, ready]);
 
   // Hover pin + tooltip, driven by whichever chart or map set the cursor.
   useEffect(() => {
@@ -532,13 +572,34 @@ export default function MapView(props: MapViewProps) {
     <div className="relative">
       <div
         ref={containerRef}
-        className="h-[52vh] min-h-[320px] w-full overflow-hidden rounded-xl border border-line-soft sm:h-[62vh]"
+        className="h-[52vh] min-h-[320px] w-full overflow-hidden border border-ink sm:h-[62vh]"
       />
-      <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-line-soft bg-ink/85 px-2 py-1 text-[0.62rem] text-fog backdrop-blur">
-        Tap the track to select a segment · hover for time, speed and VMG
+      <div className="pointer-events-none absolute left-3 top-3 map-chip">
+        tap the track to select
+        <span className="hidden sm:inline"> · hover for detail</span>
       </div>
+      <div className="north-arrow absolute right-3 top-[104px]" title="North is up">
+        <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden>
+          <path d="M5 0 L10 12 L5 8.6 L0 12 Z" fill="#121211" />
+        </svg>
+        <span>N</span>
+      </div>
+      {legend.length > 0 && (
+        <div className="absolute bottom-16 left-3 map-legend max-w-[52%] sm:bottom-3">
+          {legend.map((label) => (
+            <div key={label} className="map-legend-row">
+              <span className="map-legend-line" style={{ borderTopColor: segmentColor(label) }} />
+              <span>{SEGMENT_LABEL_TEXT[label]}</span>
+            </div>
+          ))}
+          <div className="map-legend-row mt-0.5 text-grey">
+            <span className="map-legend-line" data-dashed="true" style={{ borderTopColor: "#8e8a7e" }} />
+            <span>dashed = estimate</span>
+          </div>
+        </div>
+      )}
       {points.length === 0 && (
-        <div className="absolute inset-0 grid place-items-center rounded-xl bg-ink/70 text-sm text-fog">
+        <div className="absolute inset-0 grid place-items-center bg-card/80 text-sm text-grey">
           No track points
         </div>
       )}

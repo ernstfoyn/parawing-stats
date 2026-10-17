@@ -77,8 +77,16 @@ export function buildChartData(points: EnrichedPoint[], maxPoints = 1400): Chart
   });
 }
 
-const gridStroke = "#1a2740";
-const axisStroke = "#22324a";
+const gridStroke = "#ddd9cf";
+const axisStroke = "#b5b0a3";
+
+/** Series colours, matched to the segment colours so a line and its label agree. */
+const SPEED_COLOR = "#121211";
+const VMG_UP_COLOR = "#14a45c";
+const VMG_DOWN_COLOR = "#e0763a";
+const TWA_COLOR = "#cbc7bc";
+const WIND_COLOR = "#0f7c7c";
+const GUST_COLOR = "#e0763a";
 
 function timeTicks(seconds: number): string {
   return formatDuration(seconds);
@@ -105,17 +113,17 @@ function ChartTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const x = typeof label === "number" ? label : Number(label);
   return (
-    <div className="panel px-2.5 py-2 text-[0.72rem] shadow-xl">
-      <div className="mb-1 font-medium text-mist">
+    <div className="tooltip-card px-2.5 py-2 text-[0.68rem]">
+      <div className="mono mb-1 font-bold tracking-[0.06em] text-ink">
         {Number.isFinite(x) ? formatDuration(x) : ""}
       </div>
       {payload.map((p, k) => (
-        <div key={k} className="flex items-center justify-between gap-4 leading-5">
+        <div key={k} className="mono flex items-center justify-between gap-4 leading-5">
           <span className="flex items-center gap-1.5" style={{ color: p.color }}>
-            <span className="size-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+            <span className="size-1.5" style={{ backgroundColor: p.color }} />
             {p.name}
           </span>
-          <span className="tabular-nums text-snow">
+          <span className="tabular-nums font-bold text-ink">
             {p.dataKey === "twa"
               ? p.value == null
                 ? "—"
@@ -201,7 +209,7 @@ export function SpeedProfileChart({
             type="monotone"
             dataKey="twa"
             name="TWA"
-            stroke="#4b5f7a"
+            stroke={TWA_COLOR}
             strokeWidth={1}
             dot={false}
             connectNulls={false}
@@ -212,7 +220,7 @@ export function SpeedProfileChart({
             type="monotone"
             dataKey="speed"
             name="Speed"
-            stroke="#e9f1fa"
+            stroke={SPEED_COLOR}
             strokeWidth={2}
             dot={false}
             connectNulls={false}
@@ -223,8 +231,8 @@ export function SpeedProfileChart({
             type="monotone"
             dataKey="vmgUp"
             name="VMG upwind"
-            stroke="#38bdf8"
-            strokeWidth={1.6}
+            stroke={VMG_UP_COLOR}
+            strokeWidth={1.8}
             dot={false}
             connectNulls={false}
             isAnimationActive={false}
@@ -234,8 +242,8 @@ export function SpeedProfileChart({
             type="monotone"
             dataKey="vmgDown"
             name="VMG downwind"
-            stroke="#f97316"
-            strokeWidth={1.6}
+            stroke={VMG_DOWN_COLOR}
+            strokeWidth={1.8}
             dot={false}
             connectNulls={false}
             isAnimationActive={false}
@@ -246,8 +254,8 @@ export function SpeedProfileChart({
               x={hoverDatum.x}
               y={hoverDatum.speed}
               r={3.5}
-              fill="#2dd4bf"
-              stroke="#061019"
+              fill={VMG_UP_COLOR}
+              stroke="#faf9f6"
               strokeWidth={1.5}
             />
           )}
@@ -302,20 +310,21 @@ export function SpeedHistogram({
             tickFormatter={(v: number) => formatDuration(v)}
           />
           <Tooltip
-            cursor={{ fill: "#1a2740", opacity: 0.4 }}
+            cursor={{ fill: "#e7e3da", opacity: 0.8 }}
             formatter={(v) => [formatDuration(Number(v ?? 0)), "time"]}
             labelFormatter={(label) => `${label} ${SPEED_UNIT_LABEL[unit]}`}
             contentStyle={{
-              background: "#101a29",
-              border: "1px solid #22324a",
-              borderRadius: 8,
-              fontSize: 12,
+              background: "#faf9f6",
+              border: "1px solid #121211",
+              borderRadius: 2,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
             }}
-            labelStyle={{ color: "#b3c4d8" }}
+            labelStyle={{ color: "#4b4944" }}
           />
-          <Bar dataKey="time" radius={[3, 3, 0, 0]}>
+          <Bar dataKey="time" radius={[1, 1, 0, 0]}>
             {data.map((d, k) => (
-              <Cell key={k} fill={d.mid >= convertSpeed(6, unit) ? "#f97316" : "#2dd4bf"} />
+              <Cell key={k} fill={d.mid >= convertSpeed(6, unit) ? GUST_COLOR : VMG_UP_COLOR} />
             ))}
           </Bar>
         </BarChart>
@@ -365,7 +374,7 @@ export function WindChart({
             type="stepAfter"
             dataKey="wind"
             name="Wind speed"
-            stroke="#38bdf8"
+            stroke={WIND_COLOR}
             strokeWidth={1.8}
             dot={false}
             isAnimationActive={false}
@@ -374,7 +383,7 @@ export function WindChart({
             type="stepAfter"
             dataKey="gust"
             name="Gusts"
-            stroke="#f59e0b"
+            stroke={GUST_COLOR}
             strokeWidth={1.4}
             strokeDasharray="3 3"
             dot={false}
@@ -388,7 +397,7 @@ export function WindChart({
 
 function ChartEmpty({ label }: { label: string }) {
   return (
-    <div className="grid h-40 place-items-center rounded-lg border border-dashed border-line-soft text-xs text-fog">
+    <div className="grid h-40 place-items-center border border-dashed border-rule text-[0.72rem] text-grey">
       {label}
     </div>
   );

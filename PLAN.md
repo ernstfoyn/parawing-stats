@@ -58,7 +58,7 @@ reasons are kept so the classifier can be trained on user corrections later.
 
 ## Phases
 
-1. Scaffold + config (done), Tailwind theme tokens, dark Scandinavian design system.
+1. Scaffold + config (done), Tailwind theme tokens, paper-specimen design system.
 2. Core math (geo, units, clean, metrics) + Vitest tests + synthetic tracks.
 3. Importers (GPX, FIT) + hash dedupe + tests (FIT round-trip via the SDK encoder).
 4. Wind: provider interface, Frost proxy route, Open-Meteo fallback, manual entry, circular alignment.
@@ -68,3 +68,6 @@ reasons are kept so the classifier can be trained on user corrections later.
 8. Persistence: IndexedDB, corrections stored, equipment presets, demo activity.
 9. Verify: `vitest run`, `next build`, manual end-to-end (import demo → wind → edit segments → reload).
 10. Docs: README (setup, Frost key, Netlify deploy), `.env.example`, `netlify.toml`.
+11. Redesign: paper-specimen identity (Open Sauce Two + Space Mono, hairline plates, crop marks),
+    light positron basemap, numbered downwind badges + map legend, downwind runs table, and
+    best-effort 1/2/3-minute speed and VMG windows (`lib/bestWindows.ts`).

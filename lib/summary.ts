@@ -56,18 +56,22 @@ export const SEGMENT_LABEL_HINT: Record<SegmentLabel, string> = {
 };
 
 /**
- * Segment colours. Scandinavian palette: teal/blue-green for ordinary sailing, warm amber/orange
- * for downwind surfing, neutral slate for the uncertain and the excluded. The two downwind kinds
- * are far enough apart in hue to read on a dark map.
+ * Segment colours.
+ *
+ * Signal green is ordinary sailing (upwind), the warm Soft Origin is downwind with the parawing
+ * still flying, and Familiar Tone pink is the free/packed run. Everything the app is unsure about
+ * is neutral grey, so the two vivid hues always mean "the rider was actually riding". The values
+ * are darkened versions of the accent tokens in `globals.css` because they are drawn as map lines
+ * on a pale basemap, where a light accent would disappear.
  */
 export const SEGMENT_COLORS: Record<SegmentLabel, string> = {
-  upwind: "#2dd4bf", // teal
-  reaching: "#38bdf8", // sky
-  idle: "#64748b", // slate
-  powered_downwind: "#f59e0b", // amber
-  free_downwind: "#f97316", // ember orange
-  unclassified: "#94a3b8", // light slate
-  excluded: "#475569", // dark slate
+  upwind: "#14a45c", // Signal green
+  reaching: "#0f7c7c", // deep teal: same family as upwind, plainly not upwind
+  idle: "#b0ac9f", // quiet: not sailing
+  powered_downwind: "#e0763a", // Soft Origin (parawing still flying)
+  free_downwind: "#dc4b8e", // Familiar Tone (wing packed, riding swell)
+  unclassified: "#8e8a7e", // unknown
+  excluded: "#d2cec3", // ignored entirely
 };
 
 export function segmentColor(label: SegmentLabel): string {
@@ -98,4 +102,51 @@ export function segmentLabelOf(segment: Segment): SegmentLabel {
 export function segmentTitle(segment: Segment, formatDistance: (m: number) => string): string {
   const label = SEGMENT_LABEL_TEXT[effectiveLabel(segment)];
   return `${label} · ${formatDistance(segment.features.distanceM)}`;
+}
+
+/* --------------------------------------------------------------------- runs */
+
+/** A downwind run as listed in the DW table and numbered on the map. */
+export interface DownwindRun {
+  /** 1-based number, assigned chronologically so the map badge and the table row agree. */
+  n: number;
+  segment: Segment;
+  label: SegmentLabel;
+  /** epoch ms of the first and last point in the run */
+  startT: number;
+  endT: number;
+}
+
+/** True for the two labels that count as a downwind run. */
+export function isDownwindRunLabel(label: SegmentLabel): boolean {
+  return label === "free_downwind" || label === "powered_downwind";
+}
+
+/**
+ * Every downwind segment of a plan, numbered in chronological order.
+ *
+ * Both confirmed runs and the classifier's unconfirmed guesses are included — the map labels them
+ * all as candidates — so the numbering is stable whether or not the rider has reviewed them yet.
+ * Segments whose label is a downwind kind but which are excluded never appear: exclusion wins.
+ */
+export function downwindRuns(
+  segments: readonly Segment[],
+  points: readonly { t: number }[],
+): DownwindRun[] {
+  const runs: DownwindRun[] = [];
+  for (const segment of [...segments].sort((a, b) => a.startIdx - b.startIdx)) {
+    const label = effectiveLabel(segment);
+    if (!isDownwindRunLabel(label)) continue;
+    const start = points[segment.startIdx];
+    const end = points[segment.endIdx];
+    if (!start || !end) continue;
+    runs.push({
+      n: runs.length + 1,
+      segment,
+      label,
+      startT: start.t,
+      endT: end.t,
+    });
+  }
+  return runs;
 }

@@ -8,19 +8,20 @@
  * cursor, merge with a neighbour, or clear the manual label back to the classifier's guess. Every
  * operation returns a new plan and the dashboard recalculates immediately.
  *
- * Nothing here claims to know whether the parawing was flying: a dashed block is an unconfirmed
+ * Nothing here claims to know whether the parawing was flying: a faded block is an unconfirmed
  * estimate, and the reasons behind the guess are always one click away.
  */
 
 import { useMemo } from "react";
 import {
+  effectiveLabel,
   isDownwindLabel,
   mergeSegments,
   resetToAuto,
   setSegmentLabel,
   splitSegment,
 } from "@/lib/classify";
-import { segmentColor, SEGMENT_LABEL_HINT, SEGMENT_LABEL_TEXT, LEGEND_ORDER } from "@/lib/summary";
+import { LEGEND_ORDER, segmentColor, SEGMENT_LABEL_HINT, SEGMENT_LABEL_TEXT } from "@/lib/summary";
 import {
   formatDistance,
   formatDuration,
@@ -28,7 +29,6 @@ import {
   formatTimeInOffset,
   type SpeedUnit,
 } from "@/lib/units";
-import { effectiveLabel } from "@/lib/classify";
 import { USER_LABELS } from "@/lib/types";
 import type { EnrichedPoint, Segment, SegmentLabel, SegmentPlan } from "@/lib/types";
 import { Chip, Dot } from "./ui";
@@ -81,7 +81,7 @@ export default function SegmentTimeline({
     <div>
       {/* -------------------------------------------------------------- the bar */}
       <div className="relative">
-        <div className="flex h-9 w-full overflow-hidden rounded-lg border border-line-soft">
+        <div className="flex h-10 w-full overflow-hidden border border-ink">
           {plan.segments.map((seg) => {
             const label = effectiveLabel(seg);
             const width = (Math.max(0, seg.features.durationS) / totalS) * 100;
@@ -95,15 +95,15 @@ export default function SegmentTimeline({
                 onClick={() => onSelect(isSelected ? null : seg.id)}
                 onMouseEnter={() => onHoverIdx(seg.endIdx)}
                 onMouseLeave={() => onHoverIdx(null)}
-                className="relative h-full cursor-pointer border-r border-abyss/60 transition-opacity last:border-r-0 hover:opacity-85"
+                className="relative h-full cursor-pointer border-r border-card/70 transition-opacity last:border-r-0 hover:opacity-85"
                 style={{
                   width: `${Math.max(width, 0.3)}%`,
                   backgroundColor: segmentColor(label),
-                  opacity: seg.manualLabel == null ? 0.55 : 1,
+                  opacity: seg.manualLabel == null ? 0.62 : 1,
                   outline: isSelected
-                    ? "2px solid #ffffff"
+                    ? "2px solid #121211"
                     : isHighlight
-                      ? "2px solid rgba(233,241,250,0.7)"
+                      ? "2px solid rgba(250,249,246,0.9)"
                       : undefined,
                   outlineOffset: isSelected || isHighlight ? "-2px" : undefined,
                 }}
@@ -114,7 +114,7 @@ export default function SegmentTimeline({
         {cursorPercent != null && (
           <div
             aria-hidden
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-snow/80"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink"
             style={{ left: `${Math.min(100, Math.max(0, cursorPercent))}%` }}
           />
         )}
@@ -123,12 +123,15 @@ export default function SegmentTimeline({
       {/* ------------------------------------------------------------ legend row */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {LEGEND_ORDER.map((label) => (
-          <span key={label} className="inline-flex items-center gap-1.5 text-[0.68rem] text-fog">
+          <span
+            key={label}
+            className="mono inline-flex items-center gap-1.5 text-[0.62rem] uppercase tracking-[0.04em] text-grey"
+          >
             <Dot color={segmentColor(label)} />
             {SEGMENT_LABEL_TEXT[label]}
           </span>
         ))}
-        <span className="text-[0.68rem] text-fog/80">
+        <span className="text-[0.66rem] text-grey">
           Faded blocks are the classifier&apos;s estimate; solid ones are your decision.
         </span>
       </div>
@@ -148,7 +151,7 @@ export default function SegmentTimeline({
             unit={unit}
           />
         ) : (
-          <p className="text-xs text-fog">
+          <p className="text-[0.76rem] text-grey">
             Select a block above (or a part of the track on the map) to edit its classification.
           </p>
         )}
@@ -184,7 +187,7 @@ function SegmentEditor({
   const end = points[seg.endIdx];
 
   return (
-    <div className="rounded-lg border border-line-soft bg-ink p-3 sm:p-4">
+    <div className="border border-ink bg-sunk p-3 sm:p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Chip color={segmentColor(label)}>{SEGMENT_LABEL_TEXT[label]}</Chip>
         {seg.manualLabel == null ? (
@@ -192,33 +195,30 @@ function SegmentEditor({
             estimate · {Math.round(seg.auto.confidence * 100)}% confident
           </Chip>
         ) : (
-          <Chip color="#2dd4bf" title="You set this label; it overrides the classifier.">
+          <Chip color="#14a45c" title="You set this label; it overrides the classifier.">
             your label
           </Chip>
         )}
         {start && end && (
-          <span className="text-[0.68rem] text-fog">
+          <span className="mono text-[0.66rem] text-grey">
             {formatTimeInOffset(start.t, tzOffsetMin)}–{formatTimeInOffset(end.t, tzOffsetMin)}
           </span>
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-4">
         <Mini label="Distance" value={formatDistance(f.distanceM)} />
         <Mini label="Duration" value={formatDuration(f.durationS)} />
         <Mini label="Avg speed" value={`${formatSpeed(f.avgSpeedMps, unit)} ${unit}`} />
         <Mini label="Max speed" value={`${formatSpeed(f.maxSpeedMps, unit)} ${unit}`} />
         <Mini label="Avg TWA" value={Number.isFinite(f.avgTwaDeg) ? `${Math.round(f.avgTwaDeg)}°` : "—"} />
-        <Mini
-          label="Avg VMG down"
-          value={`${formatSpeed(f.avgVmgDownMps, unit)} ${unit}`}
-        />
+        <Mini label="Avg VMG down" value={`${formatSpeed(f.avgVmgDownMps, unit)} ${unit}`} />
         <Mini label="Deep run" value={`${Math.round(f.deadRunFraction * 100)}%`} />
         <Mini label="Moving" value={`${Math.round(f.movingFraction * 100)}%`} />
       </div>
 
       {/* relabel */}
-      <div className="mt-3">
+      <div className="mt-3.5">
         <div className="label">Set the label</div>
         <div className="flex flex-wrap gap-1.5">
           {USER_LABELS.map((l) => (
@@ -253,18 +253,14 @@ function SegmentEditor({
         <button
           type="button"
           className="btn"
-          onClick={() =>
-            onPlanChange(mergeSegments(plan, points, seg.id, "prev"))
-          }
+          onClick={() => onPlanChange(mergeSegments(plan, points, seg.id, "prev"))}
         >
           Merge with previous
         </button>
         <button
           type="button"
           className="btn"
-          onClick={() =>
-            onPlanChange(mergeSegments(plan, points, seg.id, "next"))
-          }
+          onClick={() => onPlanChange(mergeSegments(plan, points, seg.id, "next"))}
         >
           Merge with next
         </button>
@@ -291,18 +287,18 @@ function SegmentEditor({
 
       {/* reasons */}
       {seg.auto.reasons.length > 0 && (
-        <ul className="mt-3 space-y-1 border-t border-line-soft pt-3 text-[0.72rem] leading-relaxed text-fog">
+        <ul className="mt-3 space-y-1 border-t border-rule pt-3 text-[0.7rem] leading-relaxed text-grey">
           {seg.auto.reasons.map((r, i) => (
             <li key={i} className="flex gap-2">
-              <span className="text-line">•</span>
+              <span className="text-quiet">•</span>
               <span>{r}</span>
             </li>
           ))}
         </ul>
       )}
       {isDownwindLabel(label) && (
-        <p className="mt-2 text-[0.68rem] leading-relaxed text-ember/90">
-          Confirmed downwind segments feed the downwind statistics at the bottom of this page.
+        <p className="mt-2 text-[0.66rem] leading-relaxed text-origin">
+          Confirmed downwind segments feed the downwind statistics and the runs table above.
         </p>
       )}
     </div>
@@ -312,8 +308,8 @@ function SegmentEditor({
 function Mini({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[0.62rem] font-semibold uppercase tracking-[0.07em] text-fog">{label}</div>
-      <div className="tabular-nums text-mist">{value}</div>
+      <div className="label mb-0.5">{label}</div>
+      <div className="mono text-[0.74rem] text-ink">{value}</div>
     </div>
   );
 }
@@ -334,14 +330,14 @@ function LabelButton({
       title={SEGMENT_LABEL_HINT[label]}
       onClick={onClick}
       aria-pressed={active}
-      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[0.72rem] font-medium transition-colors"
+      className="mono inline-flex items-center gap-1.5 border px-2 py-1 text-[0.66rem] font-bold uppercase tracking-[0.04em] transition-colors"
       style={{
-        borderColor: active ? color : "#22324a",
-        backgroundColor: active ? `${color}22` : "transparent",
-        color: active ? color : "#b3c4d8",
+        borderColor: active ? "#121211" : "#b5b0a3",
+        backgroundColor: active ? color : "#faf9f6",
+        color: active ? "#121211" : "#4b4944",
       }}
     >
-      <Dot color={color} />
+      <Dot color={active ? "#121211" : color} />
       {SEGMENT_LABEL_TEXT[label]}
     </button>
   );

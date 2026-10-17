@@ -4,6 +4,8 @@ import {
   SEGMENT_COLORS,
   SEGMENT_LABEL_TEXT,
   describeWindSource,
+  downwindRuns,
+  isDownwindRunLabel,
   isEstimated,
   segmentColor,
   segmentTitle,
@@ -86,5 +88,60 @@ describe("segment presentation", () => {
     } as unknown as Segment;
     const title = segmentTitle(seg, (m) => `${(m / 1000).toFixed(1)} km`);
     expect(title).toBe("Free downwind · 1.2 km");
+  });
+});
+
+describe("downwindRuns", () => {
+  const seg = (
+    id: string,
+    startIdx: number,
+    endIdx: number,
+    autoLabel: Segment["auto"]["label"],
+    manualLabel: Segment["manualLabel"] = null,
+  ) =>
+    ({
+      id,
+      startIdx,
+      endIdx,
+      auto: { label: autoLabel, confidence: 0.6, reasons: [] },
+      manualLabel,
+      features: { distanceM: 100, durationS: 10 },
+    }) as unknown as Segment;
+
+  const points = Array.from({ length: 40 }, (_, i) => ({ t: 1000 * i }));
+
+  it("numbers the runs chronologically regardless of input order", () => {
+    const runs = downwindRuns(
+      [
+        seg("c", 30, 39, "free_downwind"),
+        seg("a", 0, 9, "powered_downwind"),
+        seg("b", 10, 19, "upwind"),
+        seg("d", 20, 29, "free_downwind"),
+      ],
+      points,
+    );
+    expect(runs.map((r) => `${r.n}:${r.segment.id}`)).toEqual(["1:a", "2:d", "3:c"]);
+    expect(runs[2].startT).toBe(30_000);
+    expect(runs[2].endT).toBe(39_000);
+  });
+
+  it("counts a manually confirmed label and a classifier guess alike", () => {
+    const runs = downwindRuns(
+      [seg("a", 0, 9, "upwind", "free_downwind"), seg("b", 10, 19, "powered_downwind")],
+      points,
+    );
+    expect(runs.map((r) => r.label)).toEqual(["free_downwind", "powered_downwind"]);
+  });
+
+  it("never numbers a segment the rider excluded", () => {
+    const runs = downwindRuns([seg("a", 0, 9, "free_downwind", "excluded")], points);
+    expect(runs).toEqual([]);
+  });
+
+  it("only treats the two downwind kinds as runs", () => {
+    expect(isDownwindRunLabel("free_downwind")).toBe(true);
+    expect(isDownwindRunLabel("powered_downwind")).toBe(true);
+    expect(isDownwindRunLabel("upwind")).toBe(false);
+    expect(isDownwindRunLabel("reaching")).toBe(false);
   });
 });

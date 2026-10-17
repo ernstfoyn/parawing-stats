@@ -2,46 +2,63 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 /* ------------------------------------------------------------------ theme tokens
-   A dark, minimally decorated Scandinavian palette: cold blue-grey surfaces, one teal accent
-   for ordinary sailing, one warm ember for downwind surfing. Nothing decorative competes with
-   the map or the numbers. */
+   A warm "specimen sheet" palette: paper surface, structural ink, hairline rules, and three
+   vivid accents. Signal green is ordinary sailing (upwind), Soft Origin is powered downwind,
+   Familiar Tone is free/packed downwind. Neutrals carry the uncertain and the ignored. The
+   visual language is deliberately editorial — mono labels, bracket tags, registration marks —
+   so the numbers read like a technical record rather than a dashboard. */
 @theme {
-  --color-abyss: #060a11;
-  --color-ink: #0b131f;
-  --color-panel: #101a29;
-  --color-panel-2: #16233a;
-  --color-line: #22324a;
-  --color-line-soft: #1a2740;
-  --color-fog: #7d90a8;
-  --color-mist: #b3c4d8;
-  --color-snow: #e9f1fa;
-  --color-accent: #2dd4bf;
-  --color-accent-2: #38bdf8;
-  --color-ember: #f97316;
-  --color-amber: #f59e0b;
+  --color-paper: #efece5;
+  --color-card: #faf9f6;
+  --color-card-2: #f3f1ea;
+  --color-sunk: #e7e3da;
+  --color-ink: #121211;
+  --color-graphite: #4b4944;
+  --color-grey: #7b7870;
+  --color-quiet: #d5d1c6;
+  --color-rule: #b5b0a3;
+  --color-signal: #14a45c;
+  --color-origin: #e0763a;
+  --color-familiar: #dc4b8e;
+  --color-reach: #0f7c7c;
+  --color-warn: #9a6a12;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: "Open Sauce Two", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
-    background-color: var(--color-abyss);
-    color: var(--color-snow);
+    background-color: var(--color-paper);
+    /* Faint drafting grid: it only shows in the gaps between panels, so it reads as paper the
+       panels are laid on rather than as decoration competing with the data. */
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--color-rule) 26%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--color-rule) 26%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 32px 32px;
+    color: var(--color-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-signal) 30%, transparent);
   }
 
   * {
-    scrollbar-color: var(--color-line) transparent;
+    scrollbar-color: var(--color-rule) transparent;
     scrollbar-width: thin;
   }
 
@@ -51,9 +68,20 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--color-line);
-    border-radius: 999px;
-    border: 2px solid var(--color-abyss);
+    background-color: var(--color-quiet);
+    border-radius: 0;
+    border: 2px solid var(--color-paper);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-rule);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.015em;
   }
 }
 
@@ -61,27 +89,114 @@
 
 @layer components {
   .panel {
-    background-color: var(--color-panel);
-    border: 1px solid var(--color-line-soft);
-    border-radius: 0.9rem;
+    position: relative;
+    background-color: var(--color-card);
+    border: 1px solid var(--color-rule);
+    border-radius: 2px;
+  }
+
+  /* Registration crop marks in all four corners: eight hairline arms (a horizontal and a vertical
+     per corner) drawn as background layers, so they are symmetric, never affect layout, and never
+     intercept a click. This is the one flourish that makes a card read as a specimen plate. */
+  .panel {
+    --tick: color-mix(in oklab, var(--color-ink) 42%, transparent);
+    background-image:
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick));
+    background-size:
+      8px 1px,
+      1px 8px,
+      8px 1px,
+      1px 8px,
+      8px 1px,
+      1px 8px,
+      8px 1px,
+      1px 8px;
+    background-position:
+      6px 6px,
+      6px 6px,
+      calc(100% - 14px) 6px,
+      calc(100% - 6px) 6px,
+      6px calc(100% - 6px),
+      6px calc(100% - 14px),
+      calc(100% - 14px) calc(100% - 6px),
+      calc(100% - 6px) calc(100% - 14px);
+    background-repeat: no-repeat;
   }
 
   .panel-hover:hover {
-    border-color: var(--color-line);
-    background-color: var(--color-panel-2);
+    background-color: var(--color-card-2);
+    border-color: var(--color-ink);
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--color-quiet);
+    padding: 0.85rem 1rem 0.7rem;
+  }
+
+  /* The numbered bracket tag, e.g. "01 / WIND". */
+  .panel-index {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--color-ink);
+    background-color: var(--color-signal);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  .panel-kicker {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-grey);
+  }
+
+  .panel-title {
+    font-size: 1.02rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--color-ink);
+  }
+
+  .panel-sub {
+    margin-top: 0.2rem;
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--color-grey);
+  }
+
+  .rule {
+    height: 1px;
+    background-color: var(--color-quiet);
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-line);
-    padding: 0.1rem 0.55rem;
-    font-size: 0.72rem;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    color: var(--color-mist);
+    border-radius: 2px;
+    border: 1px solid var(--color-rule);
+    padding: 0.1rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-graphite);
     white-space: nowrap;
   }
 
@@ -90,116 +205,254 @@
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    border-radius: 0.6rem;
-    border: 1px solid var(--color-line);
-    background-color: var(--color-panel-2);
-    color: var(--color-snow);
-    padding: 0.45rem 0.8rem;
-    font-size: 0.83rem;
-    font-weight: 500;
+    border-radius: 2px;
+    border: 1px solid var(--color-rule);
+    background-color: var(--color-card);
+    color: var(--color-ink);
+    padding: 0.4rem 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     cursor: pointer;
-    transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
   }
 
   .btn:hover:not(:disabled) {
-    background-color: var(--color-line-soft);
-    border-color: var(--color-line);
+    background-color: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-card);
   }
 
   .btn:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     cursor: not-allowed;
   }
 
   .btn-primary {
-    background-color: color-mix(in oklab, var(--color-accent) 18%, var(--color-panel-2));
-    border-color: color-mix(in oklab, var(--color-accent) 55%, var(--color-line));
-    color: var(--color-snow);
+    background-color: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-card);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background-color: color-mix(in oklab, var(--color-accent) 30%, var(--color-panel-2));
+    background-color: var(--color-signal);
+    border-color: var(--color-ink);
+    color: var(--color-ink);
   }
 
   .btn-ghost {
     background-color: transparent;
     border-color: transparent;
+    color: var(--color-grey);
   }
 
   .btn-ghost:hover:not(:disabled) {
-    background-color: var(--color-panel-2);
-    border-color: var(--color-line-soft);
+    background-color: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-card);
   }
 
   .input,
   .select {
     width: 100%;
-    border-radius: 0.55rem;
-    border: 1px solid var(--color-line);
-    background-color: var(--color-ink);
-    color: var(--color-snow);
-    padding: 0.45rem 0.6rem;
-    font-size: 0.85rem;
+    border-radius: 2px;
+    border: 1px solid var(--color-rule);
+    background-color: var(--color-card);
+    color: var(--color-ink);
+    padding: 0.42rem 0.55rem;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+  }
+
+  .input::placeholder {
+    color: var(--color-grey);
   }
 
   .input:focus,
   .select:focus {
-    outline: 2px solid color-mix(in oklab, var(--color-accent) 45%, transparent);
-    outline-offset: 0;
-    border-color: var(--color-accent);
+    outline: 2px solid var(--color-signal);
+    outline-offset: -1px;
+    border-color: var(--color-ink);
   }
 
   .label {
     display: block;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--color-fog);
+    color: var(--color-grey);
     margin-bottom: 0.3rem;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A session name can be long, and a clipped one-line input is worse than a wrapped one, so the
+     field grows to fit its content and breaks onto a second line instead of scrolling sideways. */
+  .session-name {
+    field-sizing: content;
+    max-width: 100%;
+    resize: none;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  /* ------------------------------------------------------------------- tables */
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+  }
+
+  .data-table th {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-grey);
+    border-bottom: 1px solid var(--color-rule);
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 0.32rem 0.5rem;
+    border-bottom: 1px solid var(--color-quiet);
+    color: var(--color-ink);
+    white-space: nowrap;
+  }
+
+  .data-table tbody tr:nth-child(even) {
+    background-color: var(--color-card-2);
+  }
+
+  .data-table tbody tr:hover {
+    background-color: var(--color-sunk);
+  }
+
+  .data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table tbody tr[aria-selected="true"] {
+    background-color: color-mix(in oklab, var(--color-signal) 16%, var(--color-card));
+  }
+
+  /* ---------------------------------------------------------------- best windows */
+
+  .effort-track {
+    position: relative;
+    height: 7px;
+    background-color: var(--color-sunk);
+    border-radius: 1px;
+  }
+
+  .effort-fill {
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    border-radius: 1px;
+  }
+
+  /* The session average, marked on the bar so a "best" minute has something to be best against. */
+  .effort-ref {
+    position: absolute;
+    inset-block: -2px;
+    width: 2px;
+    background-color: var(--color-ink);
+    opacity: 0.6;
   }
 }
 
-/* --------------------------------------------------------------- maplibre dark */
+/* ------------------------------------------------------------------- maplibre */
 
 .maplibregl-map {
-  background-color: var(--color-abyss);
+  background-color: var(--color-sunk);
   font-family: var(--font-sans);
 }
 
+/* Warm the greyscale basemap a touch and take a little saturation out of it, so the map sits on the
+   paper surface like a printed plate instead of glowing cool grey behind it. Only the WebGL canvas
+   is filtered: the markers, popups and controls are separate DOM and keep their exact colours. */
+.maplibregl-canvas {
+  filter: sepia(0.14) saturate(0.86) brightness(1.05);
+}
+
 .maplibregl-popup-content {
-  background-color: color-mix(in oklab, var(--color-panel) 94%, black);
-  color: var(--color-snow);
-  border: 1px solid var(--color-line);
-  border-radius: 0.6rem;
-  padding: 0.55rem 0.7rem;
-  font-size: 0.78rem;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.55);
+  background-color: var(--color-card);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  border-radius: 2px;
+  padding: 0.5rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  box-shadow: 4px 4px 0 rgb(18 18 17 / 0.12);
 }
 
 .maplibregl-popup-tip {
-  border-top-color: color-mix(in oklab, var(--color-panel) 94%, black) !important;
-  border-bottom-color: color-mix(in oklab, var(--color-panel) 94%, black) !important;
+  border-top-color: var(--color-card) !important;
+  border-bottom-color: var(--color-card) !important;
+}
+
+.maplibregl-popup-close-button {
+  color: var(--color-grey);
 }
 
 .maplibregl-ctrl-group {
-  background-color: var(--color-panel) !important;
-  border: 1px solid var(--color-line) !important;
+  background-color: var(--color-card) !important;
+  border: 1px solid var(--color-ink) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.maplibregl-ctrl-group button {
+  background-color: transparent !important;
+  border-radius: 0 !important;
 }
 
 .maplibregl-ctrl-group button + button {
-  border-top-color: var(--color-line) !important;
+  border-top-color: var(--color-quiet) !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+.maplibregl-ctrl-scale {
+  background-color: color-mix(in oklab, var(--color-card) 82%, transparent) !important;
+  border: 1px solid var(--color-ink) !important;
+  border-top: none !important;
+  color: var(--color-ink) !important;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
 }
 
 .maplibregl-ctrl-attrib {
-  background-color: rgb(6 10 17 / 0.7) !important;
-  color: var(--color-fog) !important;
-  font-size: 0.65rem;
+  background-color: color-mix(in oklab, var(--color-card) 82%, transparent) !important;
+  color: var(--color-grey) !important;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  border-radius: 0 !important;
 }
 
 .maplibregl-ctrl-attrib a {
-  color: var(--color-mist) !important;
+  color: var(--color-graphite) !important;
 }
+
+/* --------------------------------------------------------------------- map chrome */
 
 .wind-arrow {
   display: flex;
@@ -216,44 +469,145 @@
 }
 
 .wind-arrow-glyph svg {
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.7));
+  filter: drop-shadow(0 1px 1px rgb(255 255 255 / 0.85));
 }
 
 .wind-arrow-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   white-space: nowrap;
-  color: var(--color-snow);
-  background-color: color-mix(in srgb, var(--color-ink) 85%, transparent);
-  border: 1px solid var(--color-line);
-  border-radius: 999px;
-  padding: 1px 6px;
+  color: var(--color-ink);
+  background-color: var(--color-card);
+  border: 1px solid var(--color-ink);
+  border-radius: 2px;
+  padding: 1px 4px;
   text-transform: uppercase;
 }
 
 .hover-pin {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 999px;
-  border: 2px solid var(--color-snow);
-  background-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgb(45 212 191 / 0.25);
+  border: 2px solid var(--color-ink);
+  background-color: var(--color-signal);
   pointer-events: none;
 }
 
-/* Recharts polish: no focus outlines on the dark surface, thin grid. */
+/* Numbered downwind candidate badge, one per downwind run on the map. */
+.dw-marker {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  border: 1px solid var(--color-ink);
+  background-color: var(--color-signal);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dw-marker[data-kind="free_downwind"] {
+  background-color: var(--color-familiar);
+}
+
+.dw-marker[data-kind="powered_downwind"] {
+  background-color: var(--color-origin);
+}
+
+.dw-marker[data-kind="estimate"] {
+  background-color: var(--color-card);
+}
+
+.map-chip {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-graphite);
+  background-color: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: 2px;
+  padding: 2px 6px;
+}
+
+.map-legend {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-graphite);
+  background-color: var(--color-card);
+  border: 1px solid var(--color-ink);
+  border-radius: 2px;
+  padding: 5px 7px;
+}
+
+.map-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.7;
+}
+
+.map-legend-line {
+  width: 18px;
+  height: 0;
+  border-top-width: 2.5px;
+  border-top-style: solid;
+  flex: none;
+}
+
+.map-legend-line[data-dashed="true"] {
+  border-top-style: dashed;
+}
+
+.north-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 30px;
+  height: 40px;
+  border-radius: 2px;
+  border: 1px solid var(--color-ink);
+  background-color: var(--color-card);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-ink);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ recharts */
+
 .recharts-wrapper:focus,
 .recharts-surface:focus {
   outline: none;
 }
 
 .recharts-cartesian-axis-tick text {
-  fill: var(--color-fog);
-  font-size: 10px;
+  fill: var(--color-grey);
+  font-family: var(--font-mono);
+  font-size: 9px;
 }
 
 .recharts-legend-item-text {
-  color: var(--color-mist) !important;
-  font-size: 11px;
+  color: var(--color-graphite) !important;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.tooltip-card {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-ink);
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 rgb(18 18 17 / 0.12);
 }

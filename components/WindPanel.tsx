@@ -35,7 +35,7 @@ import {
   type SpeedUnit,
 } from "@/lib/units";
 import type { StationRef, WindModel, WindSample } from "@/lib/types";
-import { Chip, EmptyState, Field, QualityBadge, Spinner, Stat } from "./ui";
+import { Chip, EmptyState, Field, Note, QualityBadge, Spinner, Stat } from "./ui";
 
 export interface WindPanelProps {
   startedAt: number;
@@ -49,6 +49,9 @@ export interface WindPanelProps {
 }
 
 const PAD_MS = 15 * 60 * 1000;
+const SIGNAL = "#14a45c";
+const RULE = "#b5b0a3";
+const QUIET = "#d5d1c6";
 
 export default function WindPanel({
   startedAt,
@@ -166,10 +169,7 @@ export default function WindPanel({
       gustMps: gustKn != null && Number.isFinite(gustKn) && gustKn >= 0 ? knotsToMps(gustKn) : null,
     };
     const range = { start: startedAt, end: endedAt };
-    onChange(
-      { ...wind, kind: "manual", station: null, manual },
-      manualSamples(manual, range),
-    );
+    onChange({ ...wind, kind: "manual", station: null, manual }, manualSamples(manual, range));
   }, [manualSpeedKn, manualGustKn, manualDir, wind, startedAt, endedAt, onChange]);
 
   const hasWind = wind.kind !== "none";
@@ -177,7 +177,7 @@ export default function WindPanel({
   return (
     <div className="space-y-4">
       {/* ------------------------------------------------------------- summary */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
         <Stat
           label="Wind now used"
           value={describeWindSource(wind)}
@@ -212,7 +212,7 @@ export default function WindPanel({
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <QualityBadge quality={windSamples[0]?.quality ?? (wind.kind === "manual" ? "manual" : null)} />
         <Chip title="Share of track points that found an observation inside the tolerance window.">
           coverage {Math.round(summary.coverage * 100)}%
@@ -233,35 +233,36 @@ export default function WindPanel({
       </div>
 
       {hasWind && (
-        <p className="rounded-lg border border-line-soft bg-ink px-3 py-2 text-[0.72rem] leading-relaxed text-fog">
+        <Note>
           {qualityNote(
             windSamples[0]?.quality ?? (wind.kind === "manual" ? "manual" : "measured"),
             wind.kind === "manual" ? "manual" : wind.kind,
           )}
-        </p>
+        </Note>
       )}
 
       {/* ------------------------------------------------------------- providers */}
-      <div className="border-t border-line-soft pt-4">
+      <div className="border-t border-rule pt-4">
         <div className="label">Choose a source</div>
         <div className="flex flex-wrap gap-1.5">
           {PROVIDER_IDS.map((id) => {
             const p = WEATHER_PROVIDERS[id];
             const status = providers.find((x) => x.id === id);
             const configured = status?.configured ?? !p.requiresKey;
+            const active = activeProvider === id;
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => setActiveProvider(id)}
-                className="rounded-md border px-2.5 py-1.5 text-left text-[0.72rem] transition-colors"
+                className="border px-2.5 py-1.5 text-left transition-colors"
                 style={{
-                  borderColor: activeProvider === id ? "#2dd4bf" : "#22324a",
-                  backgroundColor: activeProvider === id ? "#2dd4bf1a" : "transparent",
+                  borderColor: active ? "#121211" : RULE,
+                  backgroundColor: active ? "#e7e3da" : "transparent",
                 }}
               >
-                <span className="block font-medium text-mist">{p.name}</span>
-                <span className="block text-fog">
+                <span className="block text-[0.76rem] font-semibold text-ink">{p.name}</span>
+                <span className="mono block text-[0.62rem] uppercase tracking-[0.06em] text-grey">
                   {p.instrumented ? "instruments" : "modelled"}
                   {p.requiresKey ? (configured ? " · ready" : " · needs key") : " · no key"}
                 </span>
@@ -271,32 +272,34 @@ export default function WindPanel({
           <button
             type="button"
             onClick={() => setActiveProvider("manual")}
-            className="rounded-md border px-2.5 py-1.5 text-left text-[0.72rem] transition-colors"
+            className="border px-2.5 py-1.5 text-left transition-colors"
             style={{
-              borderColor: activeProvider === "manual" ? "#2dd4bf" : "#22324a",
-              backgroundColor: activeProvider === "manual" ? "#2dd4bf1a" : "transparent",
+              borderColor: activeProvider === "manual" ? "#121211" : RULE,
+              backgroundColor: activeProvider === "manual" ? "#e7e3da" : "transparent",
             }}
           >
-            <span className="block font-medium text-mist">Manual</span>
-            <span className="block text-fog">your own number</span>
+            <span className="block text-[0.76rem] font-semibold text-ink">Manual</span>
+            <span className="mono block text-[0.62rem] uppercase tracking-[0.06em] text-grey">
+              your own number
+            </span>
           </button>
         </div>
 
         {activeProvider !== "manual" && providerStatus && (
-          <p className="mt-2 text-[0.7rem] leading-relaxed text-fog">
-            {providerStatus.summary} <span className="text-fog/80">{providerStatus.limitations}</span>
+          <p className="mt-2 text-[0.7rem] leading-relaxed text-grey">
+            {providerStatus.summary} <span className="text-grey/80">{providerStatus.limitations}</span>
           </p>
         )}
       </div>
 
       {/* --------------------------------------------------------------- station search */}
       {activeProvider !== "manual" && (
-        <div className="border-t border-line-soft pt-4">
+        <div className="border-t border-rule pt-4">
           <div className="flex flex-wrap items-end gap-2">
             <button type="button" className="btn btn-primary" onClick={search} disabled={searching}>
               {searching ? "Searching…" : "Find stations near the track"}
             </button>
-            <label className="flex items-center gap-2 text-[0.72rem] text-fog">
+            <label className="flex items-center gap-2 text-[0.7rem] text-grey">
               within
               <select
                 className="select w-24"
@@ -313,25 +316,17 @@ export default function WindPanel({
             {searching && <Spinner label="asking the weather service" />}
           </div>
 
-          {searchError && (
-            <p className="mt-2 rounded-lg border border-ember/40 bg-ember/10 px-3 py-2 text-[0.72rem] leading-relaxed text-ember">
-              {searchError}
-            </p>
-          )}
-          {obsError && (
-            <p className="mt-2 rounded-lg border border-ember/40 bg-ember/10 px-3 py-2 text-[0.72rem] leading-relaxed text-ember">
-              {obsError}
-            </p>
-          )}
+          {searchError && <Note tone="warn">{searchError}</Note>}
+          {obsError && <Note tone="warn">{obsError}</Note>}
 
           {stationNotes.map((n, i) => (
-            <p key={i} className="mt-2 text-[0.7rem] leading-relaxed text-fog">
+            <p key={i} className="mt-2 text-[0.7rem] leading-relaxed text-grey">
               {n}
             </p>
           ))}
 
           {stations.length > 0 && (
-            <ul className="mt-3 space-y-1.5">
+            <ul className="mt-3 space-y-1">
               {stations.map((s) => {
                 const active = wind.station?.id === s.id && wind.kind === activeProvider;
                 return (
@@ -340,29 +335,31 @@ export default function WindPanel({
                       type="button"
                       onClick={() => chooseStation(s)}
                       disabled={loadingObs != null}
-                      className="w-full rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-60"
+                      className="w-full border px-3 py-2 text-left transition-colors disabled:opacity-60"
                       style={{
-                        borderColor: active ? "#2dd4bf" : "#1a2740",
-                        backgroundColor: active ? "#2dd4bf14" : "transparent",
+                        borderColor: active ? "#121211" : QUIET,
+                        backgroundColor: active ? "#e7e3da" : "transparent",
                       }}
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <span className="truncate text-[0.82rem] font-medium text-mist">
+                        <span className="truncate text-[0.8rem] font-semibold text-ink">
                           {s.name}
                         </span>
-                        <span className="shrink-0 text-[0.7rem] tabular-nums text-fog">
+                        <span className="mono shrink-0 text-[0.68rem] text-grey">
                           {s.distanceKm == null ? "—" : `${s.distanceKm.toFixed(1)} km`}
                         </span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Chip color={s.hasWind ? "#2dd4bf" : "#7d90a8"}>
+                        <Chip color={s.hasWind ? SIGNAL : "#7b7870"}>
                           {s.hasWind ? "has data this session" : "no data this session"}
                         </Chip>
-                        <span className="text-[0.66rem] text-fog/80">score {s.score.toFixed(2)}</span>
+                        <span className="mono text-[0.62rem] text-grey">
+                          score {s.score.toFixed(2)}
+                        </span>
                         {loadingObs === s.id && <Spinner label="loading wind" />}
                       </div>
                       {s.reasons.length > 0 && (
-                        <p className="mt-1 text-[0.68rem] leading-relaxed text-fog">
+                        <p className="mt-1 text-[0.66rem] leading-relaxed text-grey">
                           {s.reasons.join(" ")}
                         </p>
                       )}
@@ -374,7 +371,7 @@ export default function WindPanel({
           )}
 
           {!searching && stations.length === 0 && !searchError && (
-            <p className="mt-2 text-[0.7rem] text-fog">
+            <p className="mt-2 text-[0.7rem] text-grey">
               {providerById(activeProvider)?.available === "yes"
                 ? "Press search to look for stations with wind for this session."
                 : "This source cannot supply historical wind; use Frost or manual entry."}
@@ -385,7 +382,7 @@ export default function WindPanel({
 
       {/* --------------------------------------------------------------- manual entry */}
       {activeProvider === "manual" && (
-        <div className="border-t border-line-soft pt-4">
+        <div className="border-t border-rule pt-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Field label="Wind speed (kn)">
               <input
@@ -417,7 +414,7 @@ export default function WindPanel({
             <button type="button" className="btn btn-primary" onClick={applyManual}>
               Use this wind
             </button>
-            <span className="text-[0.7rem] text-fog">
+            <span className="mono text-[0.68rem] text-grey">
               {formatDirection(Number(manualDir))} ·{" "}
               {Number.isFinite(Number(manualSpeedKn))
                 ? `${Number(manualSpeedKn).toFixed(1)} kn = ${knotsToMps(Number(manualSpeedKn)).toFixed(1)} m/s`
@@ -429,7 +426,7 @@ export default function WindPanel({
 
       {/* ------------------------------------------------------------------ clear */}
       {hasWind && (
-        <div className="border-t border-line-soft pt-4">
+        <div className="border-t border-rule pt-4">
           <button
             type="button"
             className="btn btn-ghost"
@@ -437,7 +434,7 @@ export default function WindPanel({
           >
             Remove wind data
           </button>
-          <p className="mt-1 text-[0.68rem] text-fog">
+          <p className="mt-1 text-[0.66rem] text-grey">
             Without wind there is no TWA, VMG or downwind classification — but nothing is guessed
             either.
           </p>
@@ -451,7 +448,7 @@ export default function WindPanel({
         />
       )}
       {wind.manual && (
-        <p className="text-[0.68rem] text-fog">
+        <p className="mono text-[0.66rem] text-grey">
           Current manual wind: {compassPoint(wind.manual.dirFromDeg)} {Math.round(wind.manual.dirFromDeg)}
           °, {formatSpeed(wind.manual.speedMps, unit)} {SPEED_UNIT_LABEL[unit]}
           {wind.manual.gustMps != null
