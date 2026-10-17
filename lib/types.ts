@@ -112,6 +112,13 @@ export interface CleanupReport {
   gaps: number;
   /** longest gap in seconds */
   longestGapS: number;
+  /**
+   * Total seconds of the session the watch did not record.
+   *
+   * Worth carrying separately from the count: a rider does not think in gaps, they think in time,
+   * and this is the time that used to be reported as "you were lying still".
+   */
+  gapTotalS: number;
   /** offset (minutes east of UTC) inferred from the file, if it advertised one */
   timezoneOffsetMin: number | null;
   notes: string[];
@@ -246,6 +253,14 @@ export interface SegmentFeatures {
   deadRunFraction: number;
   /** fraction of samples that are actively moving */
   movingFraction: number;
+  /**
+   * Seconds of this stretch the watch did not record.
+   *
+   * The one thing about a stretch that cannot be measured at all: there is no speed and no course,
+   * and no way to tell whether the rider stopped or was simply not logged. Reported so a rider can
+   * see that an apparently slow stretch was partly a hole in the file.
+   */
+  gapS: number;
   avgWindSpeedMps: number | null;
 }
 

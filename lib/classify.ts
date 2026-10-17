@@ -86,9 +86,30 @@ const STATE_TO_LABEL: Record<PointState, SegmentLabel> = {
   unclassified: "unclassified",
 };
 
+/**
+ * True when a point carries a *measured* speed low enough to say the rider was not sailing.
+ *
+ * Exported because it is the whole of a rule that was once broken and is otherwise invisible: a
+ * dropout has no speed and no course, and the old `pointState` called `!p.moving` idle — which every
+ * gap point satisfies — so stretches the watch had not recorded were reported as the rider lying
+ * still. On a real Rygge session 65 gaps, the longest 83 s, made up 20:44 of a 43:24 "idle" total,
+ * while only 8:27 of it was measured below 0.5 m/s. The mistake does not show up in the segment
+ * output either, because a single dropped fix is absorbed into its neighbour.
+ */
+export function isMeasuredIdle(
+  p: EnrichedPoint,
+  opts: ClassifyOptions = DEFAULT_CLASSIFY_OPTIONS,
+): boolean {
+  if (p.gap) return false;
+  if (p.speed == null) return false;
+  return !p.moving || p.speed < opts.minSpeedMps;
+}
+
 function pointState(p: EnrichedPoint, opts: ClassifyOptions): PointState {
-  const speed = p.gap ? null : p.speed;
-  if (!p.moving || speed == null || speed < opts.minSpeedMps) return "idle";
+  // A dropout is not a measurement, so it cannot be idle; nor can a point whose speed could not be
+  // derived — both answer "unmeasured", which is what `unclassified` means here.
+  if (p.gap || p.speed == null) return "unclassified";
+  if (isMeasuredIdle(p, opts)) return "idle";
   if (p.twa == null) return "unclassified";
   if (p.twa >= opts.downwindTwaMin) return "downwind";
   if (p.twa <= opts.upwindTwaMax) return "upwind";
@@ -190,6 +211,7 @@ export function segmentFeatures(
   let twaWeighted = 0;
   let twaWeight = 0;
   let deadRun = 0;
+  let gapS = 0;
   let vmgWeighted = 0;
   let vmgWeight = 0;
 
@@ -210,6 +232,7 @@ export function segmentFeatures(
     if (!iv) continue;
     durationS += iv.dt;
     distanceM += iv.dd;
+    if (iv.to.gap) gapS += iv.dt;
     if (iv.to.moving) movingDt += iv.dt;
     const speed = iv.mid((p) => (p.gap ? null : p.speed));
     if (speed != null) {
@@ -247,6 +270,7 @@ export function segmentFeatures(
     avgVmgDownMps: vmgWeight > 0 ? vmgWeighted / vmgWeight : 0,
     deadRunFraction: durationS > 0 ? deadRun / durationS : 0,
     movingFraction: durationS > 0 ? movingDt / durationS : 0,
+    gapS,
     avgWindSpeedMps: winds.length ? winds.reduce((a, b) => a + b, 0) / winds.length : null,
   };
 }

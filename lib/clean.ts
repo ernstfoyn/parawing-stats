@@ -118,6 +118,7 @@ export function cleanTrack(
   let impossibleDeviceSpeeds = 0;
   let gaps = 0;
   let longestGapS = 0;
+  let gapTotalS = 0;
 
   const impliedSpeeds: number[] = [];
 
@@ -200,6 +201,7 @@ export function cleanTrack(
         droppedGpsJump: 0,
         droppedPaused,
         gaps: 0,
+        gapTotalS: 0,
         longestGapS: 0,
         timezoneOffsetMin: meta?.timezoneOffsetMin ?? null,
         notes: [...notes, "The file contains fewer than two usable position fixes."],
@@ -251,6 +253,7 @@ export function cleanTrack(
     const isGap = i > 0 && k.dt > opts.gapThresholdS;
     if (isGap) {
       gaps++;
+      gapTotalS += k.dt;
       longestGapS = Math.max(longestGapS, k.dt);
     }
     dist += k.dd;
@@ -318,6 +321,7 @@ export function cleanTrack(
     droppedPaused,
     gaps,
     longestGapS,
+    gapTotalS,
     timezoneOffsetMin: meta?.timezoneOffsetMin ?? null,
     notes,
   };

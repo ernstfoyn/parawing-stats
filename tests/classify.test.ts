@@ -5,6 +5,7 @@ import {
   carryManualLabels,
   downwindStats,
   effectiveLabel,
+  isMeasuredIdle,
   labelRange,
   mergeSegments,
   planCoversTrack,
@@ -16,7 +17,9 @@ import {
   splitSegment,
 } from "@/lib/classify";
 import type { SegmentFeatures } from "@/lib/types";
-import { syntheticEnriched } from "./helpers";
+import { cleanTrack } from "@/lib/clean";
+import { alignWind } from "@/lib/wind/align";
+import { manualWindModel, syntheticEnriched, syntheticMeta, syntheticRaw } from "./helpers";
 
 const UPWIND = 45; // heading 45 with wind from 0 → TWA 45
 const DOWNWIND = 135; // → TWA 135
@@ -148,6 +151,69 @@ describe("buildSegmentPlan", () => {
     expect(plan.segments).toEqual([]);
   });
 
+  it("never calls a recording dropout idle", () => {
+    // 30 s of samples removed: the watch stopped, so there is no speed and no course. The old rule
+    // read `!p.moving` as idle, which every gap point satisfies, so a hole in the file was reported
+    // as the rider lying still.
+    const raw = syntheticRaw([{ headingDeg: DOWNWIND, speedMps: 9, seconds: 60 }], {
+      deviceSpeed: false,
+    });
+    raw.splice(20, 30);
+    const meta = syntheticMeta(raw);
+    const { points } = cleanTrack(raw, meta);
+    const enriched = alignWind(points, [], manualWindModel(0, 8), {
+      start: points[0].t,
+      end: points[points.length - 1].t,
+    });
+
+    const atGap = enriched.find((p) => p.gap)!;
+    expect(atGap).toBeDefined();
+    expect(atGap.speed).toBeNull();
+    expect(isMeasuredIdle(atGap)).toBe(false);
+    // And the plan must not turn it into an idle stretch either.
+    const plan = buildSegmentPlan(enriched);
+    for (const s of plan.segments) {
+      if (effectiveLabel(s) !== "idle") continue;
+      const measured = enriched
+        .slice(s.startIdx, s.endIdx + 1)
+        .some((p) => isMeasuredIdle(p));
+      expect(measured).toBe(true);
+    }
+  });
+
+  it("still calls a measured crawl idle, so the rule is about measurement and not caution", () => {
+    const points = syntheticEnriched([{ headingDeg: DOWNWIND, speedMps: 0.3, seconds: 60 }], {
+      windFromDeg: 0,
+    });
+    expect(isMeasuredIdle(points[10])).toBe(true);
+    expect(effectiveLabel(buildSegmentPlan(points).segments[0])).toBe("idle");
+  });
+
+  it("reports how much of a stretch the watch did not record", () => {
+    const raw = syntheticRaw([{ headingDeg: DOWNWIND, speedMps: 9, seconds: 90 }], {
+      deviceSpeed: false,
+    });
+    raw.splice(30, 25);
+    const { points } = cleanTrack(raw, syntheticMeta(raw));
+    const enriched = alignWind(points, [], manualWindModel(0, 8), {
+      start: points[0].t,
+      end: points[points.length - 1].t,
+    });
+    const whole = segmentFeatures(enriched, 0, enriched.length - 1);
+    expect(whole.gapS).toBeGreaterThan(20);
+    expect(whole.gapS).toBeLessThan(whole.durationS);
+  });
+
+  it("still calls a measured crawl idle", () => {
+    // A real measurement of 0.3 m/s is idle, and must stay idle: the rule is about what was
+    // measured, not about being cautious.
+    const points = syntheticEnriched([{ headingDeg: DOWNWIND, speedMps: 0.3, seconds: 60 }], {
+      windFromDeg: 0,
+    });
+    const plan = buildSegmentPlan(points);
+    expect(effectiveLabel(plan.segments[0])).toBe("idle");
+  });
+
   it("clearly labels idle pumping in the shore break", () => {
     const points = syntheticEnriched([{ headingDeg: 90, speedMps: 1.2, seconds: 60 }], {
       windFromDeg: 0,
@@ -183,6 +249,7 @@ describe("scoreDownwindKind", () => {
     avgVmgDownMps: 9.5,
     deadRunFraction: 0.8,
     movingFraction: 1,
+    gapS: 0,
     avgWindSpeedMps: 9,
   };
 

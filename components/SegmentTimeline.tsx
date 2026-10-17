@@ -222,6 +222,13 @@ function SegmentEditor({
         />
         <Mini label="Deep run" value={`${Math.round(f.deadRunFraction * 100)}%`} />
         <Mini label="Moving" value={`${Math.round(f.movingFraction * 100)}%`} />
+        {f.gapS > 0 && (
+          <Mini
+            label="Not recorded"
+            value={formatDuration(f.gapS)}
+            hint="the watch logged nothing here — this stretch is unmeasured, never idle"
+          />
+        )}
       </div>
 
       {/* relabel */}
@@ -312,11 +319,12 @@ function SegmentEditor({
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Mini({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div>
       <div className="label mb-0.5">{label}</div>
       <div className="mono text-[0.74rem] text-ink">{value}</div>
+      {hint && <div className="mt-0.5 text-[0.62rem] leading-snug text-grey">{hint}</div>}
     </div>
   );
 }

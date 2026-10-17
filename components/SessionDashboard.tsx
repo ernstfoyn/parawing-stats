@@ -706,8 +706,9 @@ function DataQuality({ record, points }: { record: SessionRecord; points: Enrich
         </Chip>
         {dropped > 0 && <Chip color="#e0763a">{dropped} discarded</Chip>}
         {r.gaps > 0 && (
-          <Chip color="#e0763a">
-            {r.gaps} gap(s), longest {Math.round(r.longestGapS)} s
+          <Chip color="#e0763a" title="Stretches with no position at all. Nothing is inferred across them.">
+            {r.gaps} hole{r.gaps === 1 ? "" : "s"} in the recording, {formatDuration(r.gapTotalS)} in
+            total, longest {Math.round(r.longestGapS)} s
           </Chip>
         )}
         <Chip>{formatOffset(r.timezoneOffsetMin)}</Chip>
@@ -715,6 +716,17 @@ function DataQuality({ record, points }: { record: SessionRecord; points: Enrich
         <Chip>app {record.appVersion}</Chip>
         <Chip>{points.length} points analysed</Chip>
       </div>
+
+      {r.gaps > 0 && (
+        <div className="mt-3">
+          <Note>
+            Where the recording stopped there is no speed and no course, so those stretches are left
+            unmeasured rather than filled in: they are excluded from the sailing statistics and from
+            moving time. They are never counted as idle — only a stretch with a *measured* speed
+            under 2 m/s is. Open a block in the timeline to see how much of it was not recorded.
+          </Note>
+        </div>
+      )}
 
       <details className="group mt-3">
         <summary className="mono cursor-pointer text-[0.66rem] uppercase tracking-[0.08em] text-grey hover:text-ink">

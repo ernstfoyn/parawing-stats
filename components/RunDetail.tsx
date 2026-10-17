@@ -179,6 +179,13 @@ export default function RunDetail({
                 : undefined
           }
         />
+        {f.gapS > 0 && (
+          <Mini
+            label="Not recorded"
+            value={formatDuration(f.gapS)}
+            hint="a hole in the file, not a stop"
+          />
+        )}
         <Mini
           label="Total turning"
           value={`${Math.round(turning.total)}°`}
