@@ -93,27 +93,23 @@ export function timeWeightedMean(
 }
 
 /**
- * Maximum speed, using a rolling mean whose window is a duration (not a sample count) so it works
- * with any sampling rate. A single noisy sample cannot become the session maximum.
+ * Speed smoothed with a rolling mean whose window is a *duration* (not a sample count), so it works
+ * at any sampling rate. Null wherever the point is not usable, so a caller can plot it directly.
  */
-export function smoothedMaxSpeed(
-  points: readonly EnrichedPoint[],
-  windowS = 3,
-): number | null {
+export function smoothedSpeeds(points: readonly EnrichedPoint[], windowS = 3): (number | null)[] {
   const samples: { t: number; speed: number }[] = [];
   for (const p of points) {
     if (p.gap || !p.moving || p.speed == null) continue;
     samples.push({ t: p.t, speed: p.speed });
   }
-  if (samples.length === 0) return null;
-  if (samples.length < 3) return Math.max(...samples.map((s) => s.speed));
-
+  if (samples.length === 0) return points.map(() => null);
   const half = (windowS * 1000) / 2;
-  let best = 0;
+
+  // Walk outwards from each sample while inside the half window; samples are time ordered.
+  const smoothed: number[] = new Array(samples.length).fill(0);
   for (let i = 0; i < samples.length; i++) {
     let sum = 0;
     let n = 0;
-    // Walk outwards while we stay inside the half window. Samples are time ordered.
     for (let j = i; j >= 0 && samples[i].t - samples[j].t <= half; j--) {
       sum += samples[j].speed;
       n++;
@@ -122,10 +118,24 @@ export function smoothedMaxSpeed(
       sum += samples[j].speed;
       n++;
     }
-    const avg = sum / n;
-    if (avg > best) best = avg;
+    smoothed[i] = sum / n;
   }
-  return best;
+
+  // Hand the values back on the original index grid so a caller can zip them with `points`.
+  const byT = new Map(samples.map((s, i) => [s.t, smoothed[i]]));
+  return points.map((p) => {
+    if (p.gap || !p.moving || p.speed == null) return null;
+    return byT.get(p.t) ?? null;
+  });
+}
+
+/**
+ * Maximum speed, using the same rolling mean as `smoothedSpeeds`. A single noisy sample cannot
+ * become the session maximum.
+ */
+export function smoothedMaxSpeed(points: readonly EnrichedPoint[], windowS = 3): number | null {
+  const smoothed = smoothedSpeeds(points, windowS).filter((v): v is number => v != null);
+  return smoothed.length > 0 ? Math.max(...smoothed) : null;
 }
 
 /** Histogram of time spent in each speed bucket, weighted by actual interval duration. */
@@ -353,28 +363,47 @@ export interface StretchPart {
   /**
    * How much the course changed across this slice, in degrees, signed with `angleDelta`: positive
    * means the rider turned to starboard. This is the honest answer to "how did I carve it" — the
-   * difference between the mean course at the start of the slice and the mean course at its end,
-   * taken the short way round the compass.
+   * mean course as the rider entered the slice against the mean course as they left it, taken the
+   * short way round the compass. Null when there is no course to compare, which the UI prints as
+   * "—": a stretch the watch did not log cannot be reported as having turned zero degrees.
    */
   turnDeg: number | null;
 }
 
-/** Mean course over the first/last few headings of a range, so one noisy sample cannot define a turn. */
+/**
+ * Mean course as the rider *enters* or *leaves* a slice, read from a couple of fixes straddling
+ * that boundary rather than from inside the slice.
+ *
+ * The distinction matters on a track that is logged sparsely. Taking the heading from the slice's
+ * own first and last few fixes works at 1 Hz, but a real GPX logged every ~7 s gave a 52 s run only
+ * 8 fixes — so a four-slice split asked each slice to define two headings out of two fixes, the
+ * entry and exit windows landed on the same samples, and every slice reported a turn of exactly
+ * 0°. A run that visibly doubles back on the map was reported as dead straight, which is a
+ * fabricated measurement rather than a missing one.
+ *
+ * Straddling the boundary fixes that: the entry window ends at the slice's first fix and the exit
+ * window starts at its last, so the two are always different samples and a short slice still
+ * measures a real course change. The windows are clamped to the run's own range, so nothing leaks in
+ * from the track either side of it.
+ */
 function edgeHeading(
   points: readonly EnrichedPoint[],
-  from: number,
-  to: number,
+  runStart: number,
+  runEnd: number,
+  boundary: number,
   which: "first" | "last",
-  take = 3,
+  take = 2,
 ): number | null {
   const headings: number[] = [];
   if (which === "first") {
-    for (let i = from; i <= to && headings.length < take; i++) {
+    // The last `take` fixes ending at the slice's first fix.
+    for (let i = boundary; i >= runStart && headings.length < take; i--) {
       const c = points[i].cog;
       if (c != null) headings.push(c);
     }
   } else {
-    for (let i = to; i >= from && headings.length < take; i--) {
+    // The first `take` fixes starting at the slice's last fix.
+    for (let i = boundary; i <= runEnd && headings.length < take; i++) {
       const c = points[i].cog;
       if (c != null) headings.push(c);
     }
@@ -444,8 +473,8 @@ export function stretchParts(
       maxSpeedMps = maxSpeedMps == null ? s : Math.max(maxSpeedMps, s);
     }
 
-    const head = edgeHeading(points, a, b, "first");
-    const tail = edgeHeading(points, a, b, "last");
+    const head = edgeHeading(points, from, to, a, "first");
+    const tail = edgeHeading(points, from, to, b, "last");
 
     out.push({
       n: out.length + 1,

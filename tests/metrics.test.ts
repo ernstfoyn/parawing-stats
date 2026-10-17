@@ -6,7 +6,9 @@ import {
   computeSessionMetrics,
   directionStats,
   smoothedMaxSpeed,
+  smoothedSpeeds,
   speedHistogram,
+  stretchParts,
   timeWeightedMean,
 } from "@/lib/metrics";
 import { alignWind } from "@/lib/wind/align";
@@ -88,6 +90,98 @@ describe("computeSessionMetrics", () => {
 describe("smoothedMaxSpeed", () => {
   it("is null for an empty track", () => {
     expect(smoothedMaxSpeed([])).toBeNull();
+  });
+});
+
+describe("stretchParts (how a stretch was turned)", () => {
+  /** East for 30 s then south for 30 s: a quarter turn, at a chosen sampling interval. */
+  function quarterTurn(dtS: number) {
+    return syntheticEnriched(
+      [
+        { headingDeg: 90, speedMps: 6, seconds: 30, dtS },
+        { headingDeg: 180, speedMps: 6, seconds: 30, dtS },
+      ],
+      { windFromDeg: 0 },
+    );
+  }
+
+  it("measures the turn when the track is logged every second", () => {
+    const points = quarterTurn(1);
+    const parts = stretchParts(points, 0, points.length - 1, 4);
+    expect(parts).toHaveLength(4);
+    for (const p of parts) expect(p.turnDeg).not.toBeNull();
+    const net = parts.reduce((a, p) => a + (p.turnDeg ?? 0), 0);
+    // East to south is a quarter turn to starboard, whichever way the slices land on it.
+    expect(Math.abs(net)).toBeGreaterThan(45);
+  });
+
+  it("measures the turn on a sparsely sampled track instead of reporting zero", () => {
+    // A real GPX logged every ~6 s gave a 57 s run only 8 fixes. Reading each slice's heading from
+    // inside the slice made the entry and exit windows land on the same two fixes, so every slice
+    // reported "0°" — a dead-straight reading of a stretch that visibly doubles back on the map.
+    const points = quarterTurn(6);
+    const parts = stretchParts(points, 0, points.length - 1, 4);
+    const turns = parts.map((p) => p.turnDeg);
+    expect(turns.filter((t) => t != null).length).toBeGreaterThan(0);
+    expect(turns.some((t) => t != null && Math.abs(t) > 20)).toBe(true);
+    const net = turns.reduce<number>((a, t) => a + (t ?? 0), 0);
+    expect(Math.abs(net)).toBeGreaterThan(45);
+  });
+
+  it("reports no turn across a straight stretch, however sparsely it was logged", () => {
+    for (const dtS of [1, 6]) {
+      const points = syntheticEnriched(
+        [{ headingDeg: 135, speedMps: 8, seconds: 120, dtS }],
+        { windFromDeg: 0 },
+      );
+      const parts = stretchParts(points, 0, points.length - 1, 4);
+      for (const p of parts) {
+        expect(p.turnDeg).not.toBeNull();
+        expect(Math.abs(p.turnDeg ?? 0)).toBeLessThan(5);
+      }
+    }
+  });
+
+  it("reads the heading at a slice boundary, so a one-fix slice is still measurable", () => {
+    const points = quarterTurn(1);
+    // Ten slices over 60 s: some slices hold only a couple of fixes.
+    const parts = stretchParts(points, 0, points.length - 1, 10);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    for (const p of parts) {
+      expect(p.startIdx).toBeLessThanOrEqual(p.endIdx);
+    }
+    // Slices do not have to be equally long, but they must cover the run.
+    expect(parts[0].startIdx).toBe(0);
+    expect(parts[parts.length - 1].endIdx).toBe(points.length - 1);
+  });
+});
+
+describe("smoothedSpeeds", () => {
+  it("agrees with the session maximum it feeds", () => {
+    const points = syntheticEnriched([{ headingDeg: 135, speedMps: 9, seconds: 60 }], {
+      windFromDeg: 0,
+    });
+    const smoothed = smoothedSpeeds(points).filter((v): v is number => v != null);
+    expect(smoothed.length).toBeGreaterThan(0);
+    expect(Math.max(...smoothed)).toBeCloseTo(smoothedMaxSpeed(points)!, 6);
+  });
+
+  it("pulls a one-sample spike down, so the chart cannot claim a speed the headline does not", () => {
+    const points = syntheticEnriched([{ headingDeg: 135, speedMps: 9, seconds: 60 }], {
+      windFromDeg: 0,
+    });
+    // One absurd sample, as a GPS glitch leaves behind.
+    points[30] = { ...points[30], speed: 60 };
+    const smoothed = smoothedSpeeds(points).filter((v): v is number => v != null);
+    expect(Math.max(...smoothed)).toBeLessThan(60);
+    expect(smoothedMaxSpeed(points)!).toBeLessThan(60);
+  });
+
+  it("returns one entry per point, so a caller can zip it with the track", () => {
+    const points = syntheticEnriched([{ headingDeg: 135, speedMps: 9, seconds: 30 }], {
+      windFromDeg: 0,
+    });
+    expect(smoothedSpeeds(points)).toHaveLength(points.length);
   });
 });
 

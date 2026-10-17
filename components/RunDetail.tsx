@@ -42,9 +42,17 @@ export interface RunDetailProps {
   canStepForward: boolean;
 }
 
-/** A slice per 30 s of riding, clamped: fewer than four says nothing, more than twelve is a table. */
-function sliceCount(durationS: number): number {
-  return Math.max(4, Math.min(12, Math.round(durationS / 30)));
+/**
+ * A slice per 30 s of riding, clamped: fewer than four says nothing, more than twelve is a table.
+ *
+ * Also clamped by how many fixes the run actually has. A 52 s run logged every 7 s has 8 fixes, and
+ * cutting that into twelve slices would print slices that contain no course at all. Showing fewer,
+ * longer slices is the honest answer; inventing detail that was never recorded is not.
+ */
+function sliceCount(durationS: number, fixes: number): number {
+  const byDuration = Math.round(durationS / 30);
+  const byFixes = Math.max(2, Math.floor((fixes - 1) / 2));
+  return Math.max(2, Math.min(12, Math.max(4, byDuration), byFixes));
 }
 
 export default function RunDetail({
@@ -63,7 +71,13 @@ export default function RunDetail({
   const f = segment.features;
 
   const parts = useMemo(
-    () => stretchParts(points, segment.startIdx, segment.endIdx, sliceCount(f.durationS)),
+    () =>
+      stretchParts(
+        points,
+        segment.startIdx,
+        segment.endIdx,
+        sliceCount(f.durationS, segment.endIdx - segment.startIdx + 1),
+      ),
     [points, segment.startIdx, segment.endIdx, f.durationS],
   );
 
