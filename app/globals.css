@@ -1,26 +1,259 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ------------------------------------------------------------------ theme tokens
+   A dark, minimally decorated Scandinavian palette: cold blue-grey surfaces, one teal accent
+   for ordinary sailing, one warm ember for downwind surfing. Nothing decorative competes with
+   the map or the numbers. */
+@theme {
+  --color-abyss: #060a11;
+  --color-ink: #0b131f;
+  --color-panel: #101a29;
+  --color-panel-2: #16233a;
+  --color-line: #22324a;
+  --color-line-soft: #1a2740;
+  --color-fog: #7d90a8;
+  --color-mist: #b3c4d8;
+  --color-snow: #e9f1fa;
+  --color-accent: #2dd4bf;
+  --color-accent-2: #38bdf8;
+  --color-ember: #f97316;
+  --color-amber: #f59e0b;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  html {
+    color-scheme: dark;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: var(--color-abyss);
+    color: var(--color-snow);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  }
+
+  * {
+    scrollbar-color: var(--color-line) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-line);
+    border-radius: 999px;
+    border: 2px solid var(--color-abyss);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ------------------------------------------------------------------ components */
+
+@layer components {
+  .panel {
+    background-color: var(--color-panel);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 0.9rem;
+  }
+
+  .panel-hover:hover {
+    border-color: var(--color-line);
+    background-color: var(--color-panel-2);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-line);
+    padding: 0.1rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--color-mist);
+    white-space: nowrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--color-line);
+    background-color: var(--color-panel-2);
+    color: var(--color-snow);
+    padding: 0.45rem 0.8rem;
+    font-size: 0.83rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  }
+
+  .btn:hover:not(:disabled) {
+    background-color: var(--color-line-soft);
+    border-color: var(--color-line);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: color-mix(in oklab, var(--color-accent) 18%, var(--color-panel-2));
+    border-color: color-mix(in oklab, var(--color-accent) 55%, var(--color-line));
+    color: var(--color-snow);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-accent) 30%, var(--color-panel-2));
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    border-color: transparent;
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-panel-2);
+    border-color: var(--color-line-soft);
+  }
+
+  .input,
+  .select {
+    width: 100%;
+    border-radius: 0.55rem;
+    border: 1px solid var(--color-line);
+    background-color: var(--color-ink);
+    color: var(--color-snow);
+    padding: 0.45rem 0.6rem;
+    font-size: 0.85rem;
+  }
+
+  .input:focus,
+  .select:focus {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 45%, transparent);
+    outline-offset: 0;
+    border-color: var(--color-accent);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-fog);
+    margin-bottom: 0.3rem;
+  }
+}
+
+/* --------------------------------------------------------------- maplibre dark */
+
+.maplibregl-map {
+  background-color: var(--color-abyss);
+  font-family: var(--font-sans);
+}
+
+.maplibregl-popup-content {
+  background-color: color-mix(in oklab, var(--color-panel) 94%, black);
+  color: var(--color-snow);
+  border: 1px solid var(--color-line);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.55);
+}
+
+.maplibregl-popup-tip {
+  border-top-color: color-mix(in oklab, var(--color-panel) 94%, black) !important;
+  border-bottom-color: color-mix(in oklab, var(--color-panel) 94%, black) !important;
+}
+
+.maplibregl-ctrl-group {
+  background-color: var(--color-panel) !important;
+  border: 1px solid var(--color-line) !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-line) !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background-color: rgb(6 10 17 / 0.7) !important;
+  color: var(--color-fog) !important;
+  font-size: 0.65rem;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--color-mist) !important;
+}
+
+.wind-arrow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.wind-arrow-glyph {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+}
+
+.wind-arrow-glyph svg {
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.7));
+}
+
+.wind-arrow-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--color-snow);
+  background-color: color-mix(in srgb, var(--color-ink) 85%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+}
+
+.hover-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--color-snow);
+  background-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(45 212 191 / 0.25);
+  pointer-events: none;
+}
+
+/* Recharts polish: no focus outlines on the dark surface, thin grid. */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
+
+.recharts-cartesian-axis-tick text {
+  fill: var(--color-fog);
+  font-size: 10px;
+}
+
+.recharts-legend-item-text {
+  color: var(--color-mist) !important;
+  font-size: 11px;
 }

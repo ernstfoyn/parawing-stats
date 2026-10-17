@@ -1,0 +1,19 @@
+# Netlify deployment for the Foil Analyzer Next.js app.
+#
+# Netlify auto-detects Next.js and installs the Next.js Runtime; the runtime needs the build output
+# in `.next`, which is what `publish` points at.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# `npm run build` runs `prebuild`, which copies MapLibre's worker bundle into `public/`
+# (see scripts/copy-maplibre-worker.mjs). Without it the map never finishes loading.
+#
+# Set the weather credentials in the Netlify UI (Site configuration → Environment variables):
+#   FROST_CLIENT_ID   — enables MET Norway Frost (measured station observations)
+#   FROST_BASE_URL    — optional
+#   HOLFUY_API_KEY    — optional (provider not implemented yet)
