@@ -72,6 +72,15 @@ export const RUN_DEEP_SHARE_MIN = 0.65;
  * is a run whatever the rest of the stretch did.
  */
 export const RUN_DEEP_DWELL_S = 90;
+/**
+ * And the stretch has to have actually ridden deep for at least this long.
+ *
+ * A wing cannot hold a course past 150° at all, so real time spent there is the signature of a wave
+ * carrying the rider. Without this, a dead-straight broad reach at a held 125-140° passed as a run: a
+ * rider's own powered stretch spent 1 % of its measured time past 150° while all nine of their runs in
+ * the same session spent 30-72 %, so they differ by a factor of thirty and 20 s is a wide bar.
+ */
+export const RUN_VERY_DEEP_S = 20;
 
 /**
  * A stretch has to last and cover ground before it is worth calling a run.
@@ -301,6 +310,7 @@ export function segmentFeatures(
   let deadRun = 0;
   let gapS = 0;
   let deepS = 0;
+  let veryDeepS = 0;
   let familyS = 0;
   let measuredS = 0;
   let dwell = 0;
@@ -340,7 +350,10 @@ export function segmentFeatures(
       twaWeighted += twa * iv.dt;
       twaWeight += iv.dt;
       measuredS += iv.dt;
-      if (twa >= 150) deadRun += iv.dt;
+      if (twa >= 150) {
+        deadRun += iv.dt;
+        veryDeepS += iv.dt;
+      }
       if (twa >= RUN_TWA_MIN) {
         deepS += iv.dt;
         dwell += iv.dt;
@@ -379,6 +392,7 @@ export function segmentFeatures(
     familyShare: measuredS > 0 ? familyS / measuredS : 0,
     deepShare: measuredS > 0 ? deepS / measuredS : 0,
     deepDwellS: dwellBest,
+    veryDeepS,
     gapS,
     avgWindSpeedMps: winds.length ? winds.reduce((a, b) => a + b, 0) / winds.length : null,
   };
@@ -418,7 +432,8 @@ export function scoreDownwindKind(
   const dwellS = Math.round(features.deepDwellS);
   const heldShare = features.deepShare >= RUN_DEEP_SHARE_MIN;
   const heldDwell = features.deepDwellS >= RUN_DEEP_DWELL_S;
-  const isRun = heldShare || heldDwell;
+  const rodeDeep = features.veryDeepS >= RUN_VERY_DEEP_S;
+  const isRun = (heldShare || heldDwell) && rodeDeep;
   const label: SegmentLabel = isRun ? "free_downwind" : "powered_downwind";
 
   const twa =
@@ -427,6 +442,10 @@ export function scoreDownwindKind(
   if (features.deepShare === 0 && features.deepDwellS === 0) {
     reasons.push(
       `Never reached the run threshold: the mean course was ${twa}, short of the 125° from which a flying parawing cannot hold a course.`,
+    );
+  } else if (!rodeDeep) {
+    reasons.push(
+      `Only ${Math.round(features.veryDeepS)} s of measured time past 150°, where a wave would have carried you deeper — the course held at ${twa} is a broad reach with the wing still flying, not a run.`,
     );
   } else if (isRun) {
     reasons.push(
@@ -470,7 +489,10 @@ export function scoreDownwindKind(
   // honestly a coin flip, and one that held 90 s of dwell is not.
   const shareMargin = clamp(Math.abs(features.deepShare - RUN_DEEP_SHARE_MIN) / 0.3, 0, 1);
   const dwellMargin = clamp((features.deepDwellS - RUN_DEEP_DWELL_S) / RUN_DEEP_DWELL_S, 0, 1);
-  const margin = isRun ? Math.max(shareMargin, dwellMargin) : shareMargin;
+  const deepMargin = clamp((features.veryDeepS - RUN_VERY_DEEP_S) / RUN_VERY_DEEP_S, 0, 1);
+  const margin = isRun
+    ? Math.max(shareMargin, dwellMargin) * Math.max(deepMargin, 0.4)
+    : Math.max(shareMargin, 1 - deepMargin);
   const confidence = clamp(
     0.28 + 0.22 * margin + 0.15 * clamp(features.deadRunFraction, 0, 1) + 0.15 * clamp(windCoverage, 0, 1),
     0.3,

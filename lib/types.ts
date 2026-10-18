@@ -276,6 +276,16 @@ export interface SegmentFeatures {
    */
   deepDwellS: number;
   /**
+   * Measured seconds at or beyond 150°, where a wave has certainly carried the rider rather than the
+   * wing holding a course.
+   *
+   * The test of whether a stretch really rode a wave, as opposed to pointing a little past the beam
+   * with the wing still flying. A rider's own powered stretch spent **1 %** of its time here while
+   * every one of their genuine runs spent 30-72 %: being on a wave takes you deeper than you are
+   * pointing, and holding a broad reach at 120-140° does not.
+   */
+  veryDeepS: number;
+  /**
    * Seconds of this stretch the watch did not record.
    *
    * The one thing about a stretch that cannot be measured at all: there is no speed and no course,

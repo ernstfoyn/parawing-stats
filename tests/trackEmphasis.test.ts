@@ -5,7 +5,8 @@ import { buildTrackFeatures, resolveTrackEmphasis, type TrackFeature } from "@/l
 import { syntheticEnriched } from "./helpers";
 
 const UPWIND = 45;
-const DOWNWIND = 135;
+// Deep enough to count as a run: the rule needs the course to ride past 150°.
+const DOWNWIND = 168;
 
 /**
  * A session with two downwind runs and a beat between them: a long one and a short one. That is the

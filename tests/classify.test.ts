@@ -22,7 +22,9 @@ import { alignWind } from "@/lib/wind/align";
 import { manualWindModel, syntheticEnriched, syntheticMeta, syntheticRaw } from "./helpers";
 
 const UPWIND = 45; // heading 45 with wind from 0 → TWA 45
-const DOWNWIND = 135; // → TWA 135
+// A leg deep enough to be a real run: the rule requires the course to *ride* past 150°, where a
+// flying parawing cannot hold at all, so a dead-straight 135° is a broad reach and not a run.
+const DOWNWIND = 168; // → TWA 168
 const DEEP = 180; // → TWA 180
 
 describe("buildSegmentPlan", () => {
@@ -232,7 +234,7 @@ describe("segmentFeatures", () => {
     expect(f.durationS).toBeCloseTo(119, 0);
     expect(f.distanceM).toBeCloseTo(9 * 119, -2);
     expect(f.avgSpeedMps).toBeCloseTo(9, 1);
-    expect(f.avgTwaDeg).toBeCloseTo(135, 1);
+    expect(f.avgTwaDeg).toBeCloseTo(168, 1);
     expect(f.movingFraction).toBeCloseTo(1, 2);
     expect(f.avgWindSpeedMps).toBeCloseTo(8, 1);
   });
@@ -252,6 +254,7 @@ describe("scoreDownwindKind", () => {
     familyShare: 1,
     deepShare: 1,
     deepDwellS: 120,
+    veryDeepS: 120,
     gapS: 0,
     avgWindSpeedMps: 9,
   };
@@ -268,6 +271,7 @@ describe("scoreDownwindKind", () => {
       avgSpeedMps: 6,
       deepShare: 0,
       deepDwellS: 0,
+      veryDeepS: 0,
       familyShare: 1,
     };
     expect(scoreDownwindKind(broad, 10, 1).label).toBe("powered_downwind");
@@ -285,6 +289,15 @@ describe("scoreDownwindKind", () => {
     // Or one long unbroken spell, even if the rest of the stretch was shallower.
     const longDwell = { ...base, avgTwaDeg: 128, deepShare: 0.4, deepDwellS: 95 };
     expect(scoreDownwindKind(longDwell, 10, 1).label).toBe("free_downwind");
+
+    // But holding the angle is not enough on its own: the stretch has to have ridden deep. A broad
+    // reach held straight at 133° passes the share test and is still not a run, because a wing cannot
+    // hold past 150° at all and a wave would have carried the rider there. On the rider's own session
+    // that stretch spent 1 s past 150° where every run spent 30-72% of its time there.
+    const straightBroadReach = { ...base, avgTwaDeg: 133, deepShare: 0.72, deepDwellS: 70, veryDeepS: 1 };
+    const notARun = scoreDownwindKind(straightBroadReach, 10, 1);
+    expect(notARun.label).toBe("powered_downwind");
+    expect(notARun.reasons.join(" ")).toContain("past 150°");
 
     // And the shape that started this: a broad reach that only dips deep at its end. Its mean sits in
     // the downwind family, which is exactly why the mean was the wrong thing to decide on.

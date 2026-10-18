@@ -136,7 +136,7 @@ describe("summariseAligned", () => {
     const points = syntheticEnriched(
       [
         { headingDeg: 45, speedMps: 6, seconds: 60 },
-        { headingDeg: 135, speedMps: 9, seconds: 60 },
+        { headingDeg: 168, speedMps: 9, seconds: 60 },
       ],
       { windFromDeg: 300, windSpeedMps: 8 },
     );
@@ -163,7 +163,7 @@ describe("analyse() end to end", () => {
     const points = syntheticEnriched(
       [
         { headingDeg: 45, speedMps: 6, seconds: 300 },
-        { headingDeg: 135, speedMps: 9, seconds: 300 },
+        { headingDeg: 168, speedMps: 9, seconds: 300 },
       ],
       { windFromDeg: 0 },
     );
