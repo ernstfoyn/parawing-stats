@@ -345,6 +345,170 @@ export function headingStats(points: readonly EnrichedPoint[], from: number, to:
   };
 }
 
+/* ------------------------------------------------------------ one board at a time */
+
+/** Which side the wind was on: the board the rider was sailing. */
+export type TackSide = "port" | "starboard";
+
+/**
+ * One board: a stretch sailed with the wind on one side, from the moment the rider came out of a
+ * tack to the moment they went into the next.
+ *
+ * An upwind beat with four tacks is one stretch of track and one row in the table, which is right for
+ * "where did I go" — but wrong for "how well did I sail upwind", because the number on that row is an
+ * average over both boards *and* over the tacks themselves, where speed collapses. A rider asked for
+ * both: the continuous stretch, and the single board from one side to the other, for VMG and speed.
+ *
+ * The side is the sign of the cross-wind component of the course, `sin(heading - wind_from)`: the wind
+ * coming over the rider's port side is a port board. That is a real measurement, not a guess — but it
+ * is only meaningful while the rider is actually beating, so intervals that are not moving, not
+ * measured, or whose true wind angle is past a beam reach are left out of the split entirely rather
+ * than assigned to a board they do not belong to.
+ */
+export interface TackPart {
+  /** 1-based, in the order they were sailed */
+  n: number;
+  side: TackSide;
+  startIdx: number;
+  endIdx: number;
+  startT: number;
+  endT: number;
+  /** measured seconds only: a hole in the recording is not time on a board */
+  durationS: number;
+  distanceM: number;
+  avgSpeedMps: number | null;
+  maxSpeedMps: number | null;
+  avgTwaDeg: number | null;
+  avgVmgUpMps: number | null;
+}
+
+/** A board has to last this long to be a board: a flick through the wind is a tack, not a leg. */
+export const TACK_MIN_S = 20;
+
+/** Past this true wind angle the rider is no longer beating, so the side means nothing. */
+const BEATING_TWA_MAX = 100;
+
+/** The side the wind is on for a heading, or null when there is no heading to judge. */
+export function tackSide(cogDeg: number | null, windFromDeg: number | null): TackSide | null {
+  if (cogDeg == null || windFromDeg == null) return null;
+  const c = Math.sin((cogDeg - windFromDeg) * (Math.PI / 180));
+  if (Math.abs(c) < 1e-6) return null;
+  return c > 0 ? "port" : "starboard";
+}
+
+/**
+ * Split a stretch into the boards it was sailed in.
+ *
+ * Returns an empty array when the stretch cannot be split — no wind direction, or no beating at all —
+ * so a caller shows the stretch whole rather than inventing a single board that was never measured.
+ */
+export function tackParts(
+  points: readonly EnrichedPoint[],
+  startIdx: number,
+  endIdx: number,
+  minSeconds = TACK_MIN_S,
+): TackPart[] {
+  const from = Math.max(0, startIdx);
+  const to = Math.min(points.length - 1, endIdx);
+  if (to <= from) return [];
+
+  // Walk the intervals, keeping only the ones that say something about which board this is.
+  const walk: { i: number; dt: number; dd: number; side: TackSide }[] = [];
+  for (let i = from + 1; i <= to; i++) {
+    const iv = intervalAt(points, i);
+    if (!iv || iv.to.gap) continue;
+    const cog = iv.mid((p) => p.cog);
+    const wind = iv.mid((p) => p.windDirFromDeg);
+    const side = tackSide(cog, wind);
+    if (!side) continue;
+    const twa = iv.mid((p) => p.twa);
+    if (twa != null && twa > BEATING_TWA_MAX) continue;
+    const speed = iv.mid((p) => (p.gap ? null : p.speed));
+    if (speed == null || !iv.to.moving) continue;
+    walk.push({ i, dt: iv.dt, dd: iv.dd, side });
+  }
+  if (walk.length === 0) return [];
+
+  // Group consecutive intervals of the same side, then merge groups too short to be a board into
+  // their longer neighbour — the moment of the tack itself lands between two boards and must not
+  // become a board of its own.
+  type Group = { side: TackSide; items: typeof walk };
+  const groups: Group[] = [];
+  for (const w of walk) {
+    const last = groups[groups.length - 1];
+    if (last && last.side === w.side) last.items.push(w);
+    else groups.push({ side: w.side, items: [w] });
+  }
+  const seconds = (g: Group) => g.items.reduce((a, w) => a + w.dt, 0);
+  for (let pass = 0; pass < 4 && groups.length > 1; pass++) {
+    let merged = false;
+    for (let k = 0; k < groups.length; k++) {
+      if (seconds(groups[k]) >= minSeconds) continue;
+      const prev = k > 0 ? groups[k - 1] : null;
+      const next = k + 1 < groups.length ? groups[k + 1] : null;
+      if (prev && next && prev.side === next.side) {
+        prev.items.push(...groups[k].items, ...next.items);
+        groups.splice(k, 2);
+      } else if (prev && (!next || seconds(prev) >= seconds(next))) {
+        prev.items.push(...groups[k].items);
+        groups.splice(k, 1);
+      } else {
+        next!.items.unshift(...groups[k].items);
+        groups.splice(k, 1);
+      }
+      merged = true;
+      k--;
+    }
+    if (!merged) break;
+  }
+
+  const out: TackPart[] = [];
+  for (const g of groups) {
+    const first = g.items[0].i;
+    const last = g.items[g.items.length - 1].i;
+    let durationS = 0;
+    let distanceM = 0;
+    let speedWeighted = 0;
+    let speedWeight = 0;
+    let maxSpeedMps: number | null = null;
+    let vmgWeighted = 0;
+    let vmgWeight = 0;
+    const twas: number[] = [];
+    for (const w of g.items) {
+      durationS += w.dt;
+      distanceM += w.dd;
+      const speed = intervalAt(points, w.i)!.mid((p) => (p.gap ? null : p.speed));
+      if (speed != null) {
+        speedWeighted += speed * w.dt;
+        speedWeight += w.dt;
+        if (maxSpeedMps == null || speed > maxSpeedMps) maxSpeedMps = speed;
+      }
+      const vmg = intervalAt(points, w.i)!.mid((p) => p.vmgUpMps);
+      if (vmg != null) {
+        vmgWeighted += vmg * w.dt;
+        vmgWeight += w.dt;
+      }
+      const twa = intervalAt(points, w.i)!.mid((p) => p.twa);
+      if (twa != null) twas.push(twa);
+    }
+    out.push({
+      n: out.length + 1,
+      side: g.side,
+      startIdx: first - 1,
+      endIdx: last,
+      startT: points[Math.max(from, first - 1)].t,
+      endT: points[last].t,
+      durationS,
+      distanceM,
+      avgSpeedMps: speedWeight > 0 ? speedWeighted / speedWeight : null,
+      maxSpeedMps,
+      avgTwaDeg: circularMeanDeg(twas),
+      avgVmgUpMps: vmgWeight > 0 ? vmgWeighted / vmgWeight : null,
+    });
+  }
+  return out;
+}
+
 /* ------------------------------------------------------- one stretch in detail */
 
 /** One slice of a single stretch of track, for the "zoom in on this run" view. */

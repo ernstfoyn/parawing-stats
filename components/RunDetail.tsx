@@ -16,7 +16,7 @@
 
 import { useMemo } from "react";
 import { effectiveLabel } from "@/lib/classify";
-import { stretchParts } from "@/lib/metrics";
+import { stretchParts, tackParts } from "@/lib/metrics";
 import { segmentColor, SEGMENT_LABEL_TEXT } from "@/lib/summary";
 import {
   convertSpeed,
@@ -79,6 +79,16 @@ export default function RunDetail({
         sliceCount(f.durationS, segment.endIdx - segment.startIdx + 1),
       ),
     [points, segment.startIdx, segment.endIdx, f.durationS],
+  );
+
+  /**
+   * The boards this stretch was sailed in. An upwind beat with four tacks is one row in the table,
+   * which is right for "where did I go" and wrong for VMG: the row's number averages both boards and
+   * the tacks in between, where speed collapses.
+   */
+  const tacks = useMemo(
+    () => (label === "upwind" ? tackParts(points, segment.startIdx, segment.endIdx) : []),
+    [points, segment.startIdx, segment.endIdx, label],
   );
 
   const turning = useMemo(() => {
@@ -241,6 +251,52 @@ export default function RunDetail({
         of its own. Turning is measured from the mean course at each end of a slice — it is a
         description of the track, not a gybe or tack count.
       </p>
+
+      {tacks.length > 1 && (
+        <div className="mt-4 border-t border-quiet pt-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div className="label">One board at a time</div>
+            <span className="mono text-[0.62rem] text-grey">
+              {tacks.length} boards · best{" "}
+              {formatSpeed(Math.max(...tacks.map((t) => t.avgVmgUpMps ?? -Infinity)), unit)}{" "}
+              {SPEED_UNIT_LABEL[unit]} upwind VMG
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            {tacks.map((t) => {
+              const best = Math.max(...tacks.map((x) => x.avgVmgUpMps ?? -Infinity));
+              const isBest = (t.avgVmgUpMps ?? -Infinity) === best;
+              return (
+                <div
+                  key={t.n}
+                  className="grid grid-cols-[22px_48px_minmax(0,1fr)_64px_72px] items-baseline gap-x-3 text-[0.68rem]"
+                >
+                  <span className="mono text-grey">{t.n}</span>
+                  <span className="mono uppercase tracking-[0.06em] text-graphite">
+                    {t.side === "port" ? "port" : "stbd"}
+                  </span>
+                  <span className="mono text-grey">
+                    {formatTimeInOffset(t.startT, tzOffsetMin)}–{formatTimeInOffset(t.endT, tzOffsetMin)}
+                  </span>
+                  <span className="mono text-right tabular-nums text-ink">
+                    {formatDistance(t.distanceM, 3)}
+                  </span>
+                  <span
+                    className={`mono text-right tabular-nums ${isBest ? "font-bold text-ink" : "text-graphite"}`}
+                    title="Average speed over this board, and its upwind VMG"
+                  >
+                    {formatSpeed(t.avgSpeedMps, unit)} / {formatSpeed(t.avgVmgUpMps, unit)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-1 mono text-[0.6rem] text-grey">
+            speed / upwind VMG in {SPEED_UNIT_LABEL[unit]} · one board is the stretch between two
+            tacks, so the numbers are not diluted by the tacks themselves
+          </p>
+        </div>
+      )}
     </div>
   );
 }

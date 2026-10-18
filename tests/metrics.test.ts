@@ -9,6 +9,8 @@ import {
   smoothedSpeeds,
   speedHistogram,
   stretchParts,
+  tackParts,
+  tackSide,
   timeWeightedMean,
 } from "@/lib/metrics";
 import { alignWind } from "@/lib/wind/align";
@@ -182,6 +184,83 @@ describe("smoothedSpeeds", () => {
       windFromDeg: 0,
     });
     expect(smoothedSpeeds(points)).toHaveLength(points.length);
+  });
+});
+
+describe("tackSide", () => {
+  it("calls the wind coming over the port side a port board", () => {
+    // Heading NE with the wind from the north puts the wind on the rider's left.
+    expect(tackSide(45, 0)).toBe("port");
+    // Heading NW with the same wind puts it on the right.
+    expect(tackSide(315, 0)).toBe("starboard");
+  });
+
+  it("says nothing when there is no heading to judge by", () => {
+    expect(tackSide(null, 0)).toBeNull();
+    expect(tackSide(45, null)).toBeNull();
+    expect(tackSide(0, 0)).toBeNull();
+  });
+});
+
+describe("tackParts (one board at a time)", () => {
+  /**
+   * A beat with two tacks: 60 s close-hauled on port, 60 s on starboard, 60 s back on port. Wind from
+   * the north, so headings of 45 and 315 put the wind on opposite sides.
+   */
+  function beat() {
+    return syntheticEnriched(
+      [
+        { headingDeg: 45, speedMps: 6, seconds: 60 },
+        { headingDeg: 315, speedMps: 6, seconds: 60 },
+        { headingDeg: 45, speedMps: 6, seconds: 60 },
+      ],
+      { windFromDeg: 0 },
+    );
+  }
+
+  it("splits a beat into the boards it was actually sailed in", () => {
+    const points = beat();
+    const parts = tackParts(points, 0, points.length - 1);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    const sides = parts.map((p) => p.side);
+    expect(sides).toContain("port");
+    expect(sides).toContain("starboard");
+    // Alternating, never two boards of the same side in a row.
+    for (let i = 1; i < sides.length; i++) expect(sides[i]).not.toBe(sides[i - 1]);
+  });
+
+  it("gives each board its own distance, time and VMG, which is the point of splitting", () => {
+    const points = beat();
+    const parts = tackParts(points, 0, points.length - 1);
+    for (const p of parts) {
+      expect(p.durationS).toBeGreaterThanOrEqual(20);
+      expect(p.distanceM).toBeGreaterThan(0);
+      expect(p.avgSpeedMps).toBeCloseTo(6, 0);
+      // At TWA 45 the upwind VMG is 6 * cos(45) = 4.24.
+      expect(p.avgVmgUpMps!).toBeGreaterThan(3.5);
+      expect(p.avgTwaDeg!).toBeGreaterThan(40);
+      expect(p.avgTwaDeg!).toBeLessThan(50);
+    }
+  });
+
+  it("does not turn a flick through the wind into a board of its own", () => {
+    const points = syntheticEnriched(
+      [
+        { headingDeg: 45, speedMps: 6, seconds: 60 },
+        { headingDeg: 315, speedMps: 6, seconds: 3 }, // a wobble across the wind
+        { headingDeg: 45, speedMps: 6, seconds: 60 },
+      ],
+      { windFromDeg: 0 },
+    );
+    const parts = tackParts(points, 0, points.length - 1);
+    expect(parts.every((p) => p.durationS >= 20)).toBe(true);
+  });
+
+  it("returns nothing rather than one invented board when there is no wind", () => {
+    const points = syntheticEnriched([{ headingDeg: 45, speedMps: 6, seconds: 60 }], {
+      windFromDeg: null,
+    });
+    expect(tackParts(points, 0, points.length - 1)).toEqual([]);
   });
 });
 
