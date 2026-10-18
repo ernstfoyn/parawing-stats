@@ -464,8 +464,10 @@ export default function SessionDashboard({
           {!needsWind && (
             <div className="mt-4">
               <Note>
-                Downwind distance and time count the runs only. A powered reach — the wing still
-                flying, the course barely past the beam — is reported separately and never added in.
+                Downwind distance and time count the runs only: stretches that <em>held</em> a course too
+                deep for a flying parawing — at least two thirds of the time past 125°, or a minute and
+                a half unbroken. A powered reach, which only dipped deep with the wing still carrying
+                you, is reported separately and never added in.
               </Note>
             </div>
           )}

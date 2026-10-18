@@ -249,6 +249,9 @@ describe("scoreDownwindKind", () => {
     avgVmgDownMps: 9.5,
     deadRunFraction: 0.8,
     movingFraction: 1,
+    familyShare: 1,
+    deepShare: 1,
+    deepDwellS: 120,
     gapS: 0,
     avgWindSpeedMps: 9,
   };
@@ -258,22 +261,49 @@ describe("scoreDownwindKind", () => {
   });
 
   it("prefers a powered reach for a broad course that never gets near a run", () => {
-    const broad = { ...base, avgTwaDeg: 118, deadRunFraction: 0, avgSpeedMps: 6 };
+    const broad = {
+      ...base,
+      avgTwaDeg: 118,
+      deadRunFraction: 0,
+      avgSpeedMps: 6,
+      deepShare: 0,
+      deepDwellS: 0,
+      familyShare: 1,
+    };
     expect(scoreDownwindKind(broad, 10, 1).label).toBe("powered_downwind");
   });
 
-  it("puts the boundary where the rider's rule does: within 55° of a dead run", () => {
-    // The rule the whole downwind number rests on. A parawing cannot hold a course within 55° of
-    // straight downwind with the wing flying, so 125° is the line: at or beyond it the wing was
-    // packed and the rider was on wave energy.
-    expect(scoreDownwindKind({ ...base, avgTwaDeg: 126 }, 10, 1).label).toBe("free_downwind");
-    expect(scoreDownwindKind({ ...base, avgTwaDeg: 124 }, 10, 1).label).toBe("powered_downwind");
+  it("decides on the angle held over time, not on the average angle", () => {
+    // The rider's own correction. What makes a run is the angle the stretch *holds*: at least two
+    // thirds of its measured time beyond 125°, or one unbroken spell of 90 s there.
+    const dip = { ...base, avgTwaDeg: 130, deepShare: 0.5, deepDwellS: 30 };
+    expect(scoreDownwindKind(dip, 10, 1).label).toBe("powered_downwind");
+
+    const held = { ...base, avgTwaDeg: 130, deepShare: 0.7, deepDwellS: 30 };
+    expect(scoreDownwindKind(held, 10, 1).label).toBe("free_downwind");
+
+    // Or one long unbroken spell, even if the rest of the stretch was shallower.
+    const longDwell = { ...base, avgTwaDeg: 128, deepShare: 0.4, deepDwellS: 95 };
+    expect(scoreDownwindKind(longDwell, 10, 1).label).toBe("free_downwind");
+
+    // And the shape that started this: a broad reach that only dips deep at its end. Its mean sits in
+    // the downwind family, which is exactly why the mean was the wrong thing to decide on.
+    const tail = { ...base, avgTwaDeg: 121, deepShare: 0.3, deepDwellS: 26, familyShare: 0.3 };
+    const guess = scoreDownwindKind(tail, 10, 1);
+    expect(guess.label).toBe("powered_downwind");
+    expect(guess.reasons.join(" ")).toContain("Only 30% of it was even in the downwind family");
   });
 
   it("lowers confidence when wind coverage is poor", () => {
     const good = scoreDownwindKind(base, 10, 1).confidence;
-    const poor = scoreDownwindKind({ ...base, avgTwaDeg: 148 }, 10, 0.2).confidence;
+    const poor = scoreDownwindKind({ ...base, avgTwaDeg: 148, deepShare: 0.85 }, 10, 0.2).confidence;
     expect(poor).toBeLessThan(good);
+  });
+
+  it("never claims more than 80% confidence, and says it is an estimate", () => {
+    const guess = scoreDownwindKind(base, 10, 1);
+    expect(guess.confidence).toBeLessThanOrEqual(0.8);
+    expect(guess.reasons.join(" ")).toContain("Estimate only");
   });
 });
 

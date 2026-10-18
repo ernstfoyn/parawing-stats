@@ -58,6 +58,22 @@ export const DEFAULT_CLASSIFY_OPTIONS: ClassifyOptions = {
 export const RUN_TWA_MIN = 125;
 
 /**
+ * How much of a stretch has to be *held* at or beyond the run threshold before it is a downwind run.
+ *
+ * The rider's own correction, after seeing the app split on the average angle: what makes a run is the
+ * angle the stretch *holds*, not its mean. On the real session this separates cleanly and the mean
+ * does not — every one of the 15 runs spent 69-100 % of its measured time beyond 125°, and both
+ * stretches that were not runs spent 30 % and 60 %.
+ */
+export const RUN_DEEP_SHARE_MIN = 0.65;
+/**
+ * Or: one unbroken spell this long at or beyond the threshold. A stretch can dip in and out and never
+ * hold a run, but a minute and a half solidly past the point where a flying wing cannot hold a course
+ * is a run whatever the rest of the stretch did.
+ */
+export const RUN_DEEP_DWELL_S = 90;
+
+/**
  * A stretch has to last and cover ground before it is worth calling a run.
  *
  * Below this it is a gybe, a wobble or a slide, not a downwind run, and listing it would pad the
@@ -191,7 +207,9 @@ function stateForRun(features: SegmentFeatures, opts: ClassifyOptions): PointSta
   if (measuredS <= 0) return "unclassified";
   if (features.avgSpeedMps < opts.minSpeedMps) return "idle";
   if (!Number.isFinite(features.avgTwaDeg)) return "unclassified";
-  if (features.avgTwaDeg >= opts.downwindTwaMin) return "downwind";
+  // The downwind family is entered on measured *time*, not on the average angle: a stretch that spent
+  // most of itself on a broad reach is a broad reach, however deep the carve at its end was.
+  if (features.familyShare >= 0.5 && features.avgTwaDeg >= opts.downwindTwaMin) return "downwind";
   if (features.avgTwaDeg <= opts.upwindTwaMax) return "upwind";
   return "reaching";
 }
@@ -282,6 +300,11 @@ export function segmentFeatures(
   let twaWeight = 0;
   let deadRun = 0;
   let gapS = 0;
+  let deepS = 0;
+  let familyS = 0;
+  let measuredS = 0;
+  let dwell = 0;
+  let dwellBest = 0;
   let vmgWeighted = 0;
   let vmgWeight = 0;
 
@@ -316,7 +339,18 @@ export function segmentFeatures(
     if (twa != null) {
       twaWeighted += twa * iv.dt;
       twaWeight += iv.dt;
+      measuredS += iv.dt;
       if (twa >= 150) deadRun += iv.dt;
+      if (twa >= RUN_TWA_MIN) {
+        deepS += iv.dt;
+        dwell += iv.dt;
+        if (dwell > dwellBest) dwellBest = dwell;
+      } else {
+        dwell = 0;
+      }
+      if (twa >= DEFAULT_CLASSIFY_OPTIONS.downwindTwaMin) familyS += iv.dt;
+    } else {
+      dwell = 0;
     }
     const vmg = iv.mid((p) => (p.gap ? null : p.vmgDownMps));
     if (vmg != null) {
@@ -342,29 +376,37 @@ export function segmentFeatures(
     avgVmgDownMps: vmgWeight > 0 ? vmgWeighted / vmgWeight : 0,
     deadRunFraction: durationS > 0 ? deadRun / durationS : 0,
     movingFraction: durationS > 0 ? movingDt / durationS : 0,
+    familyShare: measuredS > 0 ? familyS / measuredS : 0,
+    deepShare: measuredS > 0 ? deepS / measuredS : 0,
+    deepDwellS: dwellBest,
     gapS,
     avgWindSpeedMps: winds.length ? winds.reduce((a, b) => a + b, 0) / winds.length : null,
   };
 }
 
 /**
- * Guess whether a downwind stretch is a downwind run or a powered reach.
+ * Guess whether a downwind stretch is a downwind run or a powered reach, from the angle over time.
  *
- * The rule is the rider's own, not a heuristic invented here: **a parawing cannot hold a course
- * within 55° of straight downwind while it is still flying**, so a stretch that deep was ridden
- * with the wing packed down and the rider on wave energy. Anything in the downwind band that stays
- * shallower than that is a *powered reach* — the rider has borne away only a little from the beam
- * with the wing still up. Hence a course test, `TWA >= 125°`, which is what a rider means by
- * "downwind" and what makes a powered stretch look obviously different on the map.
+ * The rule is the rider's own: a parawing cannot hold a course within 55° of straight downwind while
+ * it is still flying, so a stretch that *holds* a deep course was ridden with the wing packed down and
+ * the rider on wave energy, and a stretch that merely dips deep is a powered reach — the wing still
+ * up, the rider bearing away.
  *
- * An earlier version of this function let speed relative to the session carry most of the weight
- * and treated depth as a weak corroborator. On a real Rygge session that labelled twenty
- * dead-run stretches as "powered" because they happened to be slower than the session's fastest
- * 10 %, which is backwards: for this rider, going deep is *why* the wing comes down.
+ * It used to be decided on the mean angle, and a rider pointed out why that is the wrong shape of
+ * rule: averages hide transitions. On their session a stretch that spent 70 % of its time on a broad
+ * reach and then swung deep for half a minute averaged 121°, landed in the downwind family, and came
+ * out as a powered reach — when what the rider did for most of it was reach. Averages also hid the
+ * opposite case, a mostly-powered stretch that averaged deep because of one long carve.
  *
- * Speed still corroborates — a swell ride usually carries speed — but only in the confidence, and
- * never enough to move the boundary. Confidence is capped well below 1: GPS cannot see whether the
- * wing was packed, and the UI says so.
+ * So the test is dwell, not mean: **at least two thirds of the measured time at or beyond the run
+ * threshold, or one unbroken spell of 90 s there.** Both readings of "the angle over time" are kept
+ * because they disagree in both directions, and between them they separate the real session cleanly.
+ *
+ * Speed does not decide, and that is deliberate: on the real session the two powered reaches ran at
+ * 3.6 and 6.8 m/s and the fifteen runs at 5.0-6.8 m/s, so speed overlaps almost completely and cannot
+ * carry the decision. It corroborates the confidence, where it belongs.
+ *
+ * Confidence is capped well below 1: GPS and station wind cannot see whether the wing was packed.
  */
 export function scoreDownwindKind(
   features: SegmentFeatures,
@@ -372,29 +414,40 @@ export function scoreDownwindKind(
   windCoverage: number,
 ): { label: SegmentLabel; confidence: number; reasons: string[] } {
   const reasons: string[] = [];
-
-  const twa = Number.isFinite(features.avgTwaDeg) ? features.avgTwaDeg : null;
-  const isRun = twa != null && twa >= RUN_TWA_MIN;
+  const sharePct = Math.round(features.deepShare * 100);
+  const dwellS = Math.round(features.deepDwellS);
+  const heldShare = features.deepShare >= RUN_DEEP_SHARE_MIN;
+  const heldDwell = features.deepDwellS >= RUN_DEEP_DWELL_S;
+  const isRun = heldShare || heldDwell;
   const label: SegmentLabel = isRun ? "free_downwind" : "powered_downwind";
 
-  const depth = clamp(features.deadRunFraction, 0, 1);
+  const twa =
+    Number.isFinite(features.avgTwaDeg) ? `${Math.round(features.avgTwaDeg)}°` : "an unknown angle";
 
-  if (twa == null) {
-    reasons.push("No wind direction was available for part of this segment.");
-  } else if (isRun) {
-    const off = 180 - twa;
+  if (features.deepShare === 0 && features.deepDwellS === 0) {
     reasons.push(
-      `Ran within ${Math.round(off)}° of straight downwind (mean TWA ${Math.round(twa)}°) — too deep for a parawing to hold with the wing flying, so the wing was probably packed.`,
+      `Never reached the run threshold: the mean course was ${twa}, short of the 125° from which a flying parawing cannot hold a course.`,
+    );
+  } else if (isRun) {
+    reasons.push(
+      heldShare
+        ? `Held a run for ${sharePct}% of the time it was measured (${dwellS} s unbroken at its deepest) — too much of it past 125° for the wing to have been flying.`
+        : `Held 125° or deeper for ${dwellS} s without interruption, which is longer than a flying parawing can hold — the wing was probably packed.`,
     );
   } else {
     reasons.push(
-      `Bore away only ${Math.round(twa - 90)}° past the beam (mean TWA ${Math.round(twa)}°), short of a run — the wing was probably still carrying the rider.`,
+      heldDwell
+        ? `Spent only ${sharePct}% of its measured time past 125°, in spells shorter than ${RUN_DEEP_DWELL_S} s — the wing was still carrying the rider.`
+        : `Spent ${sharePct}% of its measured time past 125°, in unbroken spells of at most ${dwellS} s — the wing was still carrying the rider.`,
     );
   }
-  if (depth > 0.2) {
+  if (features.familyShare < 0.5) {
     reasons.push(
-      `${Math.round(depth * 100)}% of the stretch was beyond 150°, i.e. dead downwind.`,
+      `Only ${Math.round(features.familyShare * 100)}% of it was even in the downwind family, so most of this stretch was a reach.`,
     );
+  }
+  if (features.deadRunFraction > 0.2) {
+    reasons.push(`${Math.round(features.deadRunFraction * 100)}% of the stretch was beyond 150°, i.e. dead downwind.`);
   }
 
   const ref = sessionRefSpeedMps && sessionRefSpeedMps > 1 ? sessionRefSpeedMps : null;
@@ -404,24 +457,22 @@ export function scoreDownwindKind(
       `Average ${features.avgSpeedMps.toFixed(1)} m/s, ${Math.round(speedRatio * 100)}% of the session's reference downwind speed (${ref.toFixed(1)} m/s). Speed only corroborates the course.`,
     );
   }
-
   reasons.push(
     features.headingSpread < 0.2
       ? `Heading stayed steady (spread ${(features.headingSpread * 100).toFixed(0)}%).`
       : `Heading varied (spread ${(features.headingSpread * 100).toFixed(0)}%), consistent with carving or weaving.`,
   );
-
   if (features.avgWindSpeedMps != null) {
-    reasons.push(
-      `Wind at the station averaged ${features.avgWindSpeedMps.toFixed(1)} m/s during the run.`,
-    );
+    reasons.push(`Wind at the station averaged ${features.avgWindSpeedMps.toFixed(1)} m/s during the run.`);
   }
 
-  // How far the call sits from the boundary, and how solid the supporting evidence is. A stretch
-  // that clears 125° by a degree is honestly a coin flip; one at 155° is not.
-  const margin = twa == null ? 0 : clamp(Math.abs(twa - RUN_TWA_MIN) / 25, 0, 1);
+  // How far the call sits from the two thresholds: a stretch that just clears the share line is
+  // honestly a coin flip, and one that held 90 s of dwell is not.
+  const shareMargin = clamp(Math.abs(features.deepShare - RUN_DEEP_SHARE_MIN) / 0.3, 0, 1);
+  const dwellMargin = clamp((features.deepDwellS - RUN_DEEP_DWELL_S) / RUN_DEEP_DWELL_S, 0, 1);
+  const margin = isRun ? Math.max(shareMargin, dwellMargin) : shareMargin;
   const confidence = clamp(
-    0.28 + 0.22 * margin + 0.15 * depth + 0.15 * clamp(windCoverage, 0, 1),
+    0.28 + 0.22 * margin + 0.15 * clamp(features.deadRunFraction, 0, 1) + 0.15 * clamp(windCoverage, 0, 1),
     0.3,
     0.8,
   );

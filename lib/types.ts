@@ -254,6 +254,28 @@ export interface SegmentFeatures {
   /** fraction of samples that are actively moving */
   movingFraction: number;
   /**
+   * Share of the measured time the course spent at or beyond the downwind-family threshold (110°).
+   *
+   * The angle *over time*, rather than its average: it answers "what was the rider actually doing for
+   * most of this stretch". A stretch whose mean sits in the downwind family can still have spent most
+   * of its time on a broad reach, and calling that a powered reach overstates it — averaging a mostly
+   * 106° stretch with a deep tail gives 121°, which is not what the rider did.
+   */
+  familyShare: number;
+  /**
+   * Share of the measured time at or beyond the run threshold (125°), where a flying parawing cannot
+   * hold a course. This is the rule the downwind/powered decision is made on.
+   */
+  deepShare: number;
+  /**
+   * Longest unbroken measured spell at or beyond the run threshold, in seconds.
+   *
+   * Shares and dwells disagree in both directions: a stretch can dip across the line repeatedly and
+   * never hold a run, or hold one solidly for a minute and a half inside a mostly-shallower stretch.
+   * Both readings of "the angle over time" are kept so the decision can use either.
+   */
+  deepDwellS: number;
+  /**
    * Seconds of this stretch the watch did not record.
    *
    * The one thing about a stretch that cannot be measured at all: there is no speed and no course,
