@@ -298,6 +298,14 @@ export interface SegmentFeatures {
    */
   veryDeepS: number;
   /**
+   * Measured seconds spent 70-90° across the wind — the band a *powered* stretch sits in.
+   *
+   * The rider's own test for telling a powered stretch from a downwind run: powered sailing is
+   * crossing the wind, roughly a beam reach, with the wing flying and pulling. A stretch that never
+   * spends time there was not powered, whatever else it did.
+   */
+  crossWindS: number;
+  /**
    * Seconds of this stretch the watch did not record.
    *
    * The one thing about a stretch that cannot be measured at all: there is no speed and no course,

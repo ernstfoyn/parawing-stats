@@ -83,6 +83,16 @@ export const RUN_DEEP_DWELL_S = 90;
 export const RUN_VERY_DEEP_S = 20;
 
 /**
+ * The band a *powered* stretch sits in, per the rider: crossing the wind on a beam reach, roughly
+ * 70-90° off it, with the wing flying and pulling.
+ *
+ * Used only to answer "could this stretch have been powered?" — never to label anything on its own,
+ * because a few seconds across the wind on the way to a wave is a transition, not a powered stretch.
+ */
+export const CROSS_WIND_MIN = 70;
+export const CROSS_WIND_MAX = 90;
+
+/**
  * A stretch has to last and cover ground before it is worth calling a run.
  *
  * Below this it is a gybe, a wobble or a slide, not a downwind run, and listing it would pad the
@@ -311,6 +321,7 @@ export function segmentFeatures(
   let gapS = 0;
   let deepS = 0;
   let veryDeepS = 0;
+  let crossWindS = 0;
   let familyS = 0;
   let measuredS = 0;
   let dwell = 0;
@@ -354,6 +365,7 @@ export function segmentFeatures(
         deadRun += iv.dt;
         veryDeepS += iv.dt;
       }
+      if (twa >= CROSS_WIND_MIN && twa <= CROSS_WIND_MAX) crossWindS += iv.dt;
       if (twa >= RUN_TWA_MIN) {
         deepS += iv.dt;
         dwell += iv.dt;
@@ -393,6 +405,7 @@ export function segmentFeatures(
     deepShare: measuredS > 0 ? deepS / measuredS : 0,
     deepDwellS: dwellBest,
     veryDeepS,
+    crossWindS,
     gapS,
     avgWindSpeedMps: winds.length ? winds.reduce((a, b) => a + b, 0) / winds.length : null,
   };

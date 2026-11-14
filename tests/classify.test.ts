@@ -255,6 +255,7 @@ describe("scoreDownwindKind", () => {
     deepShare: 1,
     deepDwellS: 120,
     veryDeepS: 120,
+    crossWindS: 0,
     gapS: 0,
     avgWindSpeedMps: 9,
   };
@@ -272,6 +273,7 @@ describe("scoreDownwindKind", () => {
       deepShare: 0,
       deepDwellS: 0,
       veryDeepS: 0,
+      crossWindS: 60,
       familyShare: 1,
     };
     expect(scoreDownwindKind(broad, 10, 1).label).toBe("powered_downwind");

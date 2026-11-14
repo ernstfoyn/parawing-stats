@@ -175,6 +175,21 @@ export default function RunDetail({
         <Mini label="Time" value={formatDuration(f.durationS)} />
         <Mini label="Avg speed" value={formatSpeed(f.avgSpeedMps, unit)} unit={SPEED_UNIT_LABEL[unit]} />
         <Mini label="Max speed" value={formatSpeed(f.maxSpeedMps, unit)} unit={SPEED_UNIT_LABEL[unit]} />
+        {/* The rider's own test for "was this powered": powered sailing is 70-90° across the wind,
+            wing flying and pulling. Shown per stretch so a run can be checked without guessing. */}
+        {isDownwind && (
+          <Mini
+            label="Cross-wind 70–90°"
+            value={formatDuration(f.crossWindS)}
+            hint={
+              f.crossWindS === 0
+                ? "never crossed the wind — not a powered stretch"
+                : f.crossWindS < 20
+                  ? "a moment across the wind, not a powered stretch"
+                  : "real time across the wind — check it"
+            }
+          />
+        )}
         <Mini
           label={isDownwind ? "Mean depth" : "Avg VMG ↑"}
           value={isDownwind ? (twa == null ? "—" : `${Math.round(twa)}°`) : vmg == null ? "—" : formatSpeed(vmg, unit)}
