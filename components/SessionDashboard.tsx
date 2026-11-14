@@ -241,6 +241,21 @@ export default function SessionDashboard({
     [],
   );
 
+  /**
+   * Rotate the measured direction, keeping the observations themselves.
+   *
+   * This is how the disagreement between the station and the rider's own geometry stops being a number
+   * to take on trust: the whole session is re-analysed against the rotated wind, so the shift in TWA,
+   * VMG, depth and the downwind verdict can be read directly. Clearing it puts the measured direction
+   * back — nothing about the source or its timing changes either way.
+   */
+  const onRotate = useCallback(
+    (deg: number) => {
+      setWind((prev) => ({ ...prev, directionBiasDeg: deg === 0 ? undefined : deg }));
+    },
+    [],
+  );
+
   const onSavePreset = useCallback(async (preset: EquipmentProfile) => {
     const id = preset.id || `preset-${Math.random().toString(36).slice(2, 9)}`;
     const next = [...presets.filter((p) => p.id !== id), { ...preset, id }];
@@ -381,7 +396,11 @@ export default function SessionDashboard({
               small
               hint={
                 analysis.wind.avgSpeedMps != null
-                  ? `from · ${formatSpeed(analysis.wind.avgSpeedMps, unit)} ${SPEED_UNIT_LABEL[unit]} over the session`
+                  ? `from · ${formatSpeed(analysis.wind.avgSpeedMps, unit)} ${SPEED_UNIT_LABEL[unit]} over the session${
+                      wind.directionBiasDeg
+                        ? ` · rotated ${wind.directionBiasDeg > 0 ? "+" : ""}${Math.round(wind.directionBiasDeg)}°`
+                        : ""
+                    }`
                   : needsWind
                     ? "no wind source set"
                     : "this source reported no direction"
@@ -623,6 +642,7 @@ export default function SessionDashboard({
             windSamples={windSamples}
             summary={analysis.wind}
             axis={windAxis}
+            onRotate={onRotate}
             unit={unit}
             onChange={onWindChange}
           />

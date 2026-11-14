@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { haversineM } from "@/lib/geo";
 import { analyse } from "@/lib/pipeline";
-import { manualSamples, summariseAligned, trueWindAngle, vmg, windAt } from "@/lib/wind/align";
+import { alignWind, manualSamples, summariseAligned, trueWindAngle, vmg, windAt } from "@/lib/wind/align";
 import type { TrackPoint, WindSample } from "@/lib/types";
 import { syntheticEnriched, manualWindModel, T0 } from "./helpers";
 
@@ -196,5 +196,59 @@ describe("analyse() end to end", () => {
       { lat: result.points[0].lat, lon: result.points[0].lon },
       { lat: result.points[1].lat, lon: result.points[1].lon },
     )).toBeGreaterThan(0);
+  });
+});
+
+describe("directionBiasDeg", () => {
+  /** A cleaned track heading 45° for five minutes, so a rotation is easy to read off. */
+  function track(): TrackPoint[] {
+    const enriched = syntheticEnriched([{ headingDeg: 45, speedMps: 6, seconds: 300 }], {
+      windFromDeg: 0,
+    });
+    return enriched.map((p) => ({
+      t: p.t,
+      lat: p.lat,
+      lon: p.lon,
+      ele: p.ele,
+      hr: p.hr,
+      speed: p.speed,
+      speedFromDevice: p.speedFromDevice,
+      cog: p.cog,
+      dist: p.dist,
+      dd: p.dd,
+      dt: p.dt,
+      gap: p.gap,
+      moving: p.moving,
+    }));
+  }
+
+  const align = (bias?: number) => {
+    const points = track();
+    const model = bias === undefined ? manualWindModel(0) : { ...manualWindModel(0), directionBiasDeg: bias };
+    return alignWind(points, [], model, { start: points[0].t, end: points[points.length - 1].t });
+  };
+
+  it("rotates the measured direction and moves the true wind angle with it", () => {
+    const base = align();
+    const rotated = align(15);
+    expect(base[10].windDirFromDeg).toBeCloseTo(0, 6);
+    expect(rotated[10].windDirFromDeg).toBeCloseTo(15, 6);
+    expect(Math.abs((rotated[10].twa ?? 0) - (base[10].twa ?? 0))).toBeCloseTo(15, 6);
+  });
+
+  it("treats a missing or zero bias as no rotation at all", () => {
+    const base = align();
+    const zero = align(0);
+    expect(zero[10].windDirFromDeg).toBe(base[10].windDirFromDeg);
+    expect(zero[10].twa).toBe(base[10].twa);
+  });
+
+  it("wraps a negative rotation past north instead of going below zero", () => {
+    const points = track();
+    const rotated = alignWind(points, [], { ...manualWindModel(10), directionBiasDeg: -25 }, {
+      start: points[0].t,
+      end: points[points.length - 1].t,
+    });
+    expect(rotated[10].windDirFromDeg).toBeCloseTo(345, 6);
   });
 });

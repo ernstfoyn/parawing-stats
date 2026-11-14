@@ -48,6 +48,8 @@ export interface WindPanelProps {
   summary: WindSummary;
   /** the wind axis read from the rider's own courses, or a withheld estimate */
   axis: WindAxisEstimate;
+  /** rotate the measured direction by this much — see WindModel.directionBiasDeg */
+  onRotate: (deg: number) => void;
   unit: SpeedUnit;
   onChange: (wind: WindModel, samples: WindSample[]) => void;
 }
@@ -65,11 +67,34 @@ const QUIET = "#d5d1c6";
  * automatically — it can only give a *line*, and only when the session's courses were actually
  * symmetric. Both limits are stated where the number is.
  */
-function OwnTrackAxis({ axis, stationDir }: { axis: WindAxisEstimate; stationDir: number | null }) {
+function OwnTrackAxis({
+  axis,
+  stationDir,
+  biasDeg,
+  onRotate,
+}: {
+  axis: WindAxisEstimate;
+  stationDir: number | null;
+  biasDeg: number;
+  onRotate: (deg: number) => void;
+}) {
   const usable = axisIsUsable(axis);
   const other = axis.axisDeg == null ? null : (axis.axisDeg + 180) % 360;
   const off = axisDistance(axis, stationDir);
   const evenSide = Math.round(50 + (1 - axis.balance) * 50);
+
+  /** Signed rotation from the station's direction to the nearest end of the rider's axis. */
+  const signedToAxis = (() => {
+    if (axis.axisDeg == null || stationDir == null) return null;
+    const ends = [axis.axisDeg, (axis.axisDeg + 180) % 360];
+    let best = ends[0];
+    for (const e of ends) {
+      if (Math.abs(((e - stationDir + 540) % 360) - 180) < Math.abs(((best - stationDir + 540) % 360) - 180)) {
+        best = e;
+      }
+    }
+    return Math.round(((best - stationDir + 540) % 360) - 180);
+  })();
 
   return (
     <div className="border-t border-rule pt-3">
@@ -117,9 +142,38 @@ function OwnTrackAxis({ axis, stationDir }: { axis: WindAxisEstimate; stationDir
           )}
         </p>
       )}
+      {/*
+        A rotation in force is always clearable, even though the disagreement it was applied to is now
+        zero — the first version hid the button in exactly that state, leaving no way back.
+      */}
+      {usable && (biasDeg !== 0 || (signedToAxis != null && signedToAxis !== 0)) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {biasDeg !== 0 ? (
+            <>
+              <span className="mono text-[0.62rem] uppercase tracking-[0.06em] text-ink">
+                rotated {biasDeg > 0 ? "+" : ""}
+                {Math.round(biasDeg)}°
+              </span>
+              <button type="button" className="btn btn-ghost" onClick={() => onRotate(0)}>
+                Back to as measured
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => onRotate(signedToAxis!)}
+            >
+              Rotate the wind {signedToAxis! > 0 ? "+" : ""}
+              {signedToAxis}° onto your own axis
+            </button>
+          )}
+        </div>
+      )}
       <p className="mt-1 text-[0.64rem] leading-relaxed text-grey">
         Read from your courses alone, with no wind measurement — which is why it is worth comparing.
-        It is a check on the station, not a replacement: the app keeps using the station above.
+        Rotating applies the difference to every observation rather than replacing them, so the timing
+        and the source stay real, and the summary above says when a rotation is in force.
       </p>
     </div>
   );
@@ -224,6 +278,7 @@ export default function WindPanel({
   windSamples,
   summary,
   axis,
+  onRotate,
   unit,
   onChange,
 }: WindPanelProps) {
@@ -420,6 +475,10 @@ export default function WindPanel({
       : [
           wind.station ? providerById(wind.kind)?.name : describeWindSource(wind),
           wind.station?.distanceKm != null ? `${wind.station.distanceKm.toFixed(1)} km from the track centre` : null,
+          // A rotation must never be silent: it changes every angle downstream.
+          wind.directionBiasDeg
+            ? `rotated ${wind.directionBiasDeg > 0 ? "+" : ""}${Math.round(wind.directionBiasDeg)}° onto your own track`
+            : null,
         ]
           .filter(Boolean)
           .join(" · ") || undefined;
@@ -508,7 +567,12 @@ export default function WindPanel({
         </Note>
       )}
 
-      <OwnTrackAxis axis={axis} stationDir={summary.meanDirFromDeg} />
+      <OwnTrackAxis
+        axis={axis}
+        stationDir={summary.meanDirFromDeg}
+        biasDeg={wind.directionBiasDeg ?? 0}
+        onRotate={onRotate}
+      />
 
       {/* ------------------------------------------------------------- providers */}
       <div className="border-t border-rule pt-4">

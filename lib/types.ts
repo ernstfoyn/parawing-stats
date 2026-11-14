@@ -188,6 +188,18 @@ export interface WindModel {
   maxGapS: number;
   /** when true, linearly interpolate between observations; otherwise use the nearest one */
   interpolate: boolean;
+  /**
+   * Degrees added to every measured direction, as a correction the rider chose.
+   *
+   * Exists because a station ten kilometres away can be systematically off from the wind at the spot,
+   * and a rider's own tacks are a measurement of the axis at the spot. Applying the difference turns
+   * that disagreement into something they can see the effect of rather than a number to take on trust.
+   *
+   * It is a *correction on top of a real source*, never a source of its own: the observations, their
+   * timing and their provenance are unchanged, and the interface states the rotation wherever it shows
+   * the wind. Absent or 0 means "as measured".
+   */
+  directionBiasDeg?: number;
 }
 
 export type WindInterp = "exact" | "interpolated" | "nearest" | "none";

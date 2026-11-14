@@ -152,14 +152,18 @@ export function alignWind(
   sessionRange?: { start: number; end: number },
 ): EnrichedPoint[] {
   const effectiveSamples = resolveSamples(samples, model, sessionRange);
+  const bias = model.directionBiasDeg ?? 0;
   return points.map((p) => {
     const w = windAt(p.t, effectiveSamples, model.maxGapS, model.interpolate);
-    const twa = trueWindAngle(p.cog, w.dirFromDeg);
+    // A rotation the rider chose, applied to the measured direction — see WindModel.directionBiasDeg.
+    const dirFromDeg =
+      w.dirFromDeg == null ? null : (((w.dirFromDeg + bias) % 360) + 360) % 360;
+    const twa = trueWindAngle(p.cog, dirFromDeg);
     return {
       ...p,
       windSpeedMps: w.speedMps,
       windGustMps: w.gustMps,
-      windDirFromDeg: w.dirFromDeg,
+      windDirFromDeg: dirFromDeg,
       windQuality: w.quality,
       windInterp: w.interp,
       twa,
