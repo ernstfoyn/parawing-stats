@@ -454,6 +454,47 @@
 
 /* --------------------------------------------------------------------- map chrome */
 
+/*
+ * Wind badge: a chart would put the wind indicator in a corner, not on top of the track. The old
+ * marker sat at the midpoint of the track, where it was read as one more numbered badge.
+ */
+.map-wind-badge {
+  position: absolute;
+  left: 0.75rem;
+  top: 2.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.3rem;
+  border: 1px solid var(--color-ink);
+  border-radius: 2px;
+  background-color: var(--color-card);
+  pointer-events: none;
+}
+
+.map-wind-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.map-wind-dir {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+
+.map-wind-meta {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-grey);
+}
+
 .wind-arrow {
   display: flex;
   align-items: center;

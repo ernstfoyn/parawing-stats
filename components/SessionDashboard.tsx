@@ -35,6 +35,7 @@ import {
   formatDuration,
   formatDurationLong,
   formatOffset,
+  formatDirection,
   formatSpeed,
   formatTimeInOffset,
   SPEED_UNIT_LABEL,
@@ -362,6 +363,21 @@ export default function SessionDashboard({
               value={formatSpeed(analysis.upwind.avgVmgMps, unit)}
               unit={SPEED_UNIT_LABEL[unit]}
               hint="towards the wind"
+            />
+            {/* The direction the whole session is measured against, where the reader is looking first:
+                every wind angle below it — TWA, depth, VMG, the downwind verdict — hangs off this one
+                number, and having to scroll to the wind panel to find it was a gap. */}
+            <Stat
+              label="Wind direction"
+              value={formatDirection(analysis.wind.meanDirFromDeg)}
+              small
+              hint={
+                analysis.wind.avgSpeedMps != null
+                  ? `from · ${formatSpeed(analysis.wind.avgSpeedMps, unit)} ${SPEED_UNIT_LABEL[unit]} over the session`
+                  : needsWind
+                    ? "no wind source set"
+                    : "this source reported no direction"
+              }
             />
           </div>
 

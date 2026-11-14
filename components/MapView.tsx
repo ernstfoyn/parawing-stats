@@ -34,7 +34,13 @@ import type { Map as MlMap, Marker as MlMarker, Popup as MlPopup } from "maplibr
 import { effectiveLabel } from "@/lib/classify";
 import { downwindRuns, LEGEND_ORDER, segmentColor, SEGMENT_LABEL_TEXT } from "@/lib/summary";
 import { buildTrackFeatures, resolveTrackEmphasis } from "@/lib/trackEmphasis";
-import { compassPoint, formatSpeed, formatTimeInOffset, type SpeedUnit } from "@/lib/units";
+import {
+  compassPoint,
+  formatSpeed,
+  formatTimeInOffset,
+  SPEED_UNIT_LABEL,
+  type SpeedUnit,
+} from "@/lib/units";
 import type { EnrichedPoint, SegmentLabel, SegmentPlan } from "@/lib/types";
 
 const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
@@ -433,33 +439,12 @@ export default function MapView(props: MapViewProps) {
         );
       }
 
-      if (wind?.dirFromDeg != null) {
-        const center = points[Math.floor(points.length / 2)];
-        const dir = wind.dirFromDeg;
-        const el = document.createElement("div");
-        el.className = "wind-arrow";
-        el.title = `Wind from ${Math.round(dir)}° (${compassPoint(dir)}) — the arrow points at the source of the wind`;
-        // The arrow tip points at the wind source so the graphic agrees with the "FROM" direction
-        // the rest of the app reports (and with positive upwind VMG pointing the same way).
-        el.innerHTML = `
-          <div class="wind-arrow-glyph">
-            <svg width="30" height="30" viewBox="0 0 34 34" style="transform: rotate(${dir}deg)">
-              <path d="M17 3 L24 26 L17 21 L10 26 Z" fill="#0f7c7c" stroke="#faf9f6" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <div class="wind-arrow-label">${compassPoint(dir)} ${Math.round(dir)}°</div>`;
-        markersRef.current.push(
-          new maplibregl.Marker({ element: el, anchor: "center" })
-            .setLngLat([center.lon, center.lat])
-            .addTo(map),
-        );
-      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [markerKey, points, runs, wind?.dirFromDeg, ready]);
+  }, [markerKey, points, runs, ready]);
 
   // Mark the badge of the selected run, so the map and the table agree about which row is active.
   // This only touches `data-selected` on markers that already exist; rebuilding them here would
@@ -559,6 +544,37 @@ export default function MapView(props: MapViewProps) {
         click a run to zoom in
         <span className="hidden sm:inline"> · or click the track to pick a block</span>
       </div>
+      {wind?.dirFromDeg != null && (
+        <div
+          className="map-wind-badge"
+          title={`Wind from ${Math.round(wind.dirFromDeg)}° (${compassPoint(
+            wind.dirFromDeg,
+          )}) — the arrow points at the source of the wind, which is the direction every wind angle in this app is measured from`}
+        >
+          {/* The arrow tip points at the wind source, so the graphic agrees with the "FROM"
+              direction the rest of the app reports and with positive upwind VMG. */}
+          <svg width="26" height="26" viewBox="0 0 34 34" aria-hidden>
+            <g style={{ transform: `rotate(${wind.dirFromDeg}deg)`, transformOrigin: "17px 17px" }}>
+              <path
+                d="M17 3 L24 26 L17 21 L10 26 Z"
+                fill="#0f7c7c"
+                stroke="#faf9f6"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+            </g>
+          </svg>
+          <div className="map-wind-text">
+            <div className="map-wind-dir">
+              {compassPoint(wind.dirFromDeg)} {Math.round(wind.dirFromDeg)}°
+            </div>
+            <div className="map-wind-meta">
+              from
+              {wind.speedMps != null && ` · ${formatSpeed(wind.speedMps, unit)} ${SPEED_UNIT_LABEL[unit]}`}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="north-arrow absolute right-3 top-[104px]" title="North is up">
         <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden>
           <path d="M5 0 L10 12 L5 8.6 L0 12 Z" fill="#121211" />

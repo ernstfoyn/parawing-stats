@@ -23,8 +23,10 @@ import {
 import { PROVIDER_IDS, providerById, qualityNote, WEATHER_PROVIDERS } from "@/lib/wind/providers";
 import type { WindSummary } from "@/lib/wind/align";
 import { manualSamples } from "@/lib/wind/align";
+import { directionConsensus, type DirectionReport } from "@/lib/wind/consensus";
 import { describeWindSource } from "@/lib/summary";
 import {
+  compassPoint,
   formatDirection,
   formatDuration,
   formatSpeed,
@@ -52,6 +54,97 @@ const SIGNAL = "#14a45c";
 const RULE = "#b5b0a3";
 const QUIET = "#d5d1c6";
 
+/**
+ * The nearest stations' directions, side by side, with the consensus and — the point — the spread.
+ *
+ * No average is offered as "the" wind: the number under the table says how far apart the stations are,
+ * because five stations that agree are evidence and five that do not are a warning. That distinction
+ * cannot be recovered from a single blended figure.
+ */
+function StationComparison({ reports, unit }: { reports: DirectionReport[]; unit: SpeedUnit }) {
+  const consensus = directionConsensus(reports);
+  return (
+    <div className="mt-3">
+      <div className="overflow-x-auto">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Station</th>
+              <th className="num">Dist.</th>
+              <th className="num">From</th>
+              <th className="num">Speed</th>
+              <th className="num">Obs.</th>
+              <th className="num">Off consensus</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((r) => {
+              const off =
+                consensus.dirFromDeg != null && r.dirFromDeg != null
+                  ? Math.round(
+                      Math.abs(
+                        (((r.dirFromDeg - consensus.dirFromDeg + 540) % 360) - 180),
+                      ),
+                    )
+                  : null;
+              return (
+                <tr key={r.id}>
+                  <td className="text-graphite">{r.name}</td>
+                  <td className="num">{r.distanceKm == null ? "—" : `${r.distanceKm.toFixed(1)} km`}</td>
+                  <td className="num font-bold">
+                    {r.dirFromDeg == null ? "—" : `${compassPoint(r.dirFromDeg)} ${Math.round(r.dirFromDeg)}°`}
+                  </td>
+                  <td className="num">{r.speedMps == null ? "—" : formatSpeed(r.speedMps, unit)}</td>
+                  <td className="num text-grey">{r.observationCount}</td>
+                  <td className="num text-grey">{off == null ? "—" : `${off}°`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {consensus.dirFromDeg != null && (
+        <div className="mt-2 border-t border-quiet pt-2 text-[0.7rem] leading-relaxed text-graphite">
+          <span className="mono uppercase tracking-[0.06em] text-grey">Distance-weighted mean</span>{" "}
+          <span className="mono font-bold text-ink">
+            {compassPoint(consensus.dirFromDeg)} {Math.round(consensus.dirFromDeg)}°
+          </span>{" "}
+          from {consensus.used} of {consensus.reported} station
+          {consensus.reported === 1 ? "" : "s"}, and those sit at most{" "}
+          <span className="mono font-bold text-ink">
+            {consensus.spreadDeg == null ? "—" : `${Math.round(consensus.spreadDeg)}°`}
+          </span>{" "}
+          apart.{" "}
+          {consensus.agreed
+            ? "That is close enough that which one you pick hardly matters."
+            : "That is a wide spread: these stations are not seeing the same wind, so the direction is a guess."}
+          {consensus.outliers.length > 0 && (
+            <>
+              {" "}
+              <span className="mono text-ink">
+                {consensus.outliers.map((o) => o.name).join(", ")}
+              </span>{" "}
+              {consensus.outliers.length === 1 ? "is" : "are"} not in that group — a{" "}
+              {Math.round(
+                Math.abs(
+                  (((consensus.outliers[0].dirFromDeg! - (consensus.dirFromDeg ?? 0) + 540) % 360) - 180),
+                ),
+              )}
+              ° difference usually means an inland or sheltered exposure, not the wind on the water.
+            </>
+          )}
+        </div>
+      )}
+      <p className="mt-1 text-[0.66rem] leading-relaxed text-grey">
+        Direction is averaged as vectors, weighted by distance — not triangulated, because a direction
+        is not a position. The mean is shown for orientation; the spread is the number to trust. Nothing
+        here is interpolated into a station that did not report.
+      </p>
+    </div>
+  );
+}
+
 export default function WindPanel({
   startedAt,
   endedAt,
@@ -71,6 +164,9 @@ export default function WindPanel({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [loadingObs, setLoadingObs] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [comparison, setComparison] = useState<DirectionReport[] | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
   const [manualSpeedKn, setManualSpeedKn] = useState(
     wind.manual ? mpsToKnots(wind.manual.speedMps).toFixed(1) : "17",
@@ -156,6 +252,70 @@ export default function WindPanel({
     },
     [activeProvider, startedAt, endedAt, wind, onChange],
   );
+
+  /**
+   * Ask the nearest stations what direction they measured, so the rider can see whether they agree.
+   *
+   * A station ten kilometres away is not the wind at the spot, and the obvious hope is that several of
+   * them can be combined into a better answer. They can be *averaged*, not triangulated — a direction is
+   * not a position — and what matters more than the average is how far apart they are. Five stations
+   * agreeing within four degrees is a solid direction; five disagreeing by forty is not, and this shows
+   * which case the rider is in instead of choosing for them.
+   */
+  const compareNearby = useCallback(async () => {
+    const candidates = stations.filter((s) => s.hasDirection && s.hasWind).slice(0, 5);
+    if (candidates.length === 0) return;
+    setComparing(true);
+    setCompareError(null);
+    const results = await Promise.all(
+      candidates.map(async (station): Promise<DirectionReport> => {
+        const res = await fetchObservations({
+          providerId: activeProvider,
+          stationId: station.id,
+          lat: station.lat,
+          lon: station.lon,
+          from: startedAt - PAD_MS,
+          to: endedAt + PAD_MS,
+        });
+        const withDir = res.failure ? [] : res.samples.filter((s) => s.dirFromDeg != null);
+        let sine = 0;
+        let cosine = 0;
+        let speedSum = 0;
+        let speedN = 0;
+        for (const s of withDir) {
+          const rad = (s.dirFromDeg! * Math.PI) / 180;
+          sine += Math.sin(rad);
+          cosine += Math.cos(rad);
+          if (s.speedMps != null) {
+            speedSum += s.speedMps;
+            speedN++;
+          }
+        }
+        const dir =
+          withDir.length > 0 && Math.hypot(sine, cosine) > 1e-9
+            ? ((Math.atan2(sine, cosine) * 180) / Math.PI + 360) % 360
+            : null;
+        return {
+          id: station.id,
+          name: station.name,
+          distanceKm: station.distanceKm,
+          dirFromDeg: dir,
+          speedMps: speedN > 0 ? speedSum / speedN : null,
+          observationCount: withDir.length,
+        };
+      }),
+    );
+    setComparing(false);
+    const usable = results.filter((r) => r.dirFromDeg != null);
+    if (usable.length === 0) {
+      setComparison(null);
+      setCompareError(
+        "None of the nearby stations returned a wind direction for this session window, so there is nothing to compare. Nothing has been filled in.",
+      );
+      return;
+    }
+    setComparison(usable.sort((a, b) => (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9)));
+  }, [stations, activeProvider, startedAt, endedAt]);
 
   const applyManual = useCallback(() => {
     const speedKn = Number(manualSpeedKn);
@@ -416,6 +576,38 @@ export default function WindPanel({
                 );
               })}
             </ul>
+          )}
+
+          {stations.length > 0 && (
+            <div className="mt-4 border-t border-rule pt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => void compareNearby()}
+                  disabled={comparing || stations.filter((s) => s.hasDirection).length === 0}
+                >
+                  {comparing ? "Comparing…" : "Compare the nearest stations"}
+                </button>
+                {comparison && (
+                  <span className="mono text-[0.62rem] uppercase tracking-[0.06em] text-grey">
+                    {comparison.length} station{comparison.length === 1 ? "" : "s"} reporting a
+                    direction
+                  </span>
+                )}
+              </div>
+
+              {compareError && <Note tone="warn">{compareError}</Note>}
+
+              {comparison && <StationComparison reports={comparison} unit={unit} />}
+
+              {!comparison && !comparing && (
+                <p className="mt-2 text-[0.68rem] leading-relaxed text-grey">
+                  A station ten kilometres away is not the wind at the spot. Comparing the nearest few
+                  shows whether they agree — and how much of the direction is guesswork.
+                </p>
+              )}
+            </div>
           )}
 
           {!searching && stations.length === 0 && !searchError && (
