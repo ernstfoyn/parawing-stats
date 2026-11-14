@@ -23,6 +23,7 @@ import {
 import { PROVIDER_IDS, providerById, qualityNote, WEATHER_PROVIDERS } from "@/lib/wind/providers";
 import type { WindSummary } from "@/lib/wind/align";
 import { manualSamples } from "@/lib/wind/align";
+import { axisDistance, axisIsUsable, type WindAxisEstimate } from "@/lib/wind/axis";
 import { directionConsensus, type DirectionReport } from "@/lib/wind/consensus";
 import { describeWindSource } from "@/lib/summary";
 import {
@@ -45,6 +46,8 @@ export interface WindPanelProps {
   wind: WindModel;
   windSamples: WindSample[];
   summary: WindSummary;
+  /** the wind axis read from the rider's own courses, or a withheld estimate */
+  axis: WindAxisEstimate;
   unit: SpeedUnit;
   onChange: (wind: WindModel, samples: WindSample[]) => void;
 }
@@ -53,6 +56,74 @@ const PAD_MS = 15 * 60 * 1000;
 const SIGNAL = "#14a45c";
 const RULE = "#b5b0a3";
 const QUIET = "#d5d1c6";
+
+/**
+ * What the rider's own courses say about the wind, and whether the station agrees.
+ *
+ * This is the one check on the wind direction that owes nothing to a weather service: a beat is
+ * symmetric about the wind, so the courses themselves encode it. It is shown as a check, never applied
+ * automatically — it can only give a *line*, and only when the session's courses were actually
+ * symmetric. Both limits are stated where the number is.
+ */
+function OwnTrackAxis({ axis, stationDir }: { axis: WindAxisEstimate; stationDir: number | null }) {
+  const usable = axisIsUsable(axis);
+  const other = axis.axisDeg == null ? null : (axis.axisDeg + 180) % 360;
+  const off = axisDistance(axis, stationDir);
+  const evenSide = Math.round(50 + (1 - axis.balance) * 50);
+
+  return (
+    <div className="border-t border-rule pt-3">
+      <div className="label">From your own track</div>
+      {!usable ? (
+        <p className="mt-1 text-[0.7rem] leading-relaxed text-grey">
+          {axis.axisDeg == null
+            ? "Your courses hold no symmetry to read a wind axis from — no beats or gybes on both sides."
+            : axis.balance < 0.4
+              ? `Too lopsided to read: ${evenSide}/${100 - evenSide} of the sailing was on one side, so the axis leans toward the tack you sailed most.`
+              : axis.stabilityDeg != null && axis.stabilityDeg > 15
+                ? `The first and second halves of the session disagree by ${Math.round(axis.stabilityDeg)}°, so the symmetry is a coincidence rather than a wind direction.`
+                : "Not enough sailing to read an axis from."}
+        </p>
+      ) : (
+        <p className="mt-1 text-[0.7rem] leading-relaxed text-graphite">
+          Your tacks are symmetric about{" "}
+          <span className="mono font-bold text-ink">
+            {compassPoint(axis.axisDeg!)} {Math.round(axis.axisDeg!)}°
+          </span>{" "}
+          / <span className="mono">{Math.round(other!)}°</span> — a line, so it cannot tell which end
+          the wind came from. {evenSide}/{100 - evenSide} split between the two sides, and both halves
+          of the session agree within {Math.round(axis.stabilityDeg ?? 0)}°.{" "}
+          {off == null ? (
+            "Set a station to check it against."
+          ) : off <= 5 ? (
+            <>
+              The station sits{" "}
+              <span className="mono font-bold text-ink">{Math.round(off)}°</span> from your own
+              geometry — as close as this check can resolve.
+            </>
+          ) : off <= 15 ? (
+            <>
+              The station is{" "}
+              <span className="mono font-bold text-ink">{Math.round(off)}°</span> from your own
+              geometry: inside the uncertainty of both, but not the same answer.
+            </>
+          ) : (
+            <>
+              The station sits{" "}
+              <span className="mono font-bold text-ink">{Math.round(off)}°</span> from your own
+              geometry, which is more than this check can explain away — and your tacks were at the
+              spot while the station was not.
+            </>
+          )}
+        </p>
+      )}
+      <p className="mt-1 text-[0.64rem] leading-relaxed text-grey">
+        Read from your courses alone, with no wind measurement — which is why it is worth comparing.
+        It is a check on the station, not a replacement: the app keeps using the station above.
+      </p>
+    </div>
+  );
+}
 
 /**
  * The nearest stations' directions, side by side, with the consensus and — the point — the spread.
@@ -152,6 +223,7 @@ export default function WindPanel({
   wind,
   windSamples,
   summary,
+  axis,
   unit,
   onChange,
 }: WindPanelProps) {
@@ -435,6 +507,8 @@ export default function WindPanel({
           )}
         </Note>
       )}
+
+      <OwnTrackAxis axis={axis} stationDir={summary.meanDirFromDeg} />
 
       {/* ------------------------------------------------------------- providers */}
       <div className="border-t border-rule pt-4">

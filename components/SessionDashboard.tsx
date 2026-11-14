@@ -27,6 +27,7 @@ import {
   updateSessionMeta,
 } from "@/lib/storage/sessions";
 import { speedBandsInRanges } from "@/lib/metrics";
+import { estimateWindAxis } from "@/lib/wind/axis";
 import { describeVmgBasis, downwindRuns, upwindRuns } from "@/lib/summary";
 import {
   formatBandEdge,
@@ -124,6 +125,13 @@ export default function SessionDashboard({
   const highlightId = analysis.dw.downwind.longest?.id ?? null;
 
   const vmgBasis = useMemo(() => describeVmgBasis(wind, analysis.wind), [wind, analysis.wind]);
+
+  /**
+   * The wind axis read from the rider's own courses — an independent witness to the direction every
+   * other number is measured against. Costs nothing (it is pure geometry on the track) and is only
+   * shown when the session's courses are actually symmetric.
+   */
+  const windAxis = useMemo(() => estimateWindAxis(analysis.points), [analysis.points]);
 
   /** Without a wind direction there is no upwind and no downwind, so nothing can be classified. */
   const needsWind = wind.kind === "none";
@@ -614,6 +622,7 @@ export default function SessionDashboard({
             wind={wind}
             windSamples={windSamples}
             summary={analysis.wind}
+            axis={windAxis}
             unit={unit}
             onChange={onWindChange}
           />
