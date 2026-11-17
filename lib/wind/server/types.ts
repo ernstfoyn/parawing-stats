@@ -66,6 +66,41 @@ export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/**
+ * Fetch a plain-text body with a timeout.
+ *
+ * Some sources publish data as JavaScript or HTML rather than JSON — Holfuy's public station page is
+ * one — and `fetchJson` cannot read those: it tries to parse and leaves `json` null. This returns the
+ * text and the same readable failures.
+ */
+export async function fetchText(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 12_000,
+): Promise<{ ok: true; status: number; text: string } | { ok: false; failure: WeatherApiFailure }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+    return { ok: true, status: res.status, text: await res.text() };
+  } catch (err) {
+    const aborted = err instanceof Error && err.name === "AbortError";
+    return {
+      ok: false,
+      failure: {
+        ok: false,
+        code: "network",
+        error: aborted
+          ? "The weather service did not answer in time."
+          : `Could not reach the weather service: ${err instanceof Error ? err.message : String(err)}`,
+        hint: "Check your internet connection and try again. You can always enter the wind manually.",
+      },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Fetch JSON with a timeout, turning every transport problem into a readable failure. */
 export async function fetchJson(
   url: string,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseHolfuyArchive } from "@/lib/wind/server/holfuy";
+import {
+  holfuySamplesFromSeries,
+  parseHolfuyArchive,
+  parseHolfuyPublicFile,
+  seriesOffsetMin,
+} from "@/lib/wind/server/holfuy";
 
 /**
  * The shape below is copied from a real response of
@@ -92,5 +97,90 @@ describe("parseHolfuyArchive", () => {
     expect(parseHolfuyArchive({ stationId: 1199, error: "Sorry, you don't have access for this station.", errorCode: "no_access" })).toEqual([]);
     expect(parseHolfuyArchive(null)).toEqual([]);
     expect(parseHolfuyArchive({ measurements: [] })).toEqual([]);
+  });
+});
+
+/**
+ * The public station page route — no password, which is the normal case: every Norwegian station
+ * answers no_access at the API. The fixture is cut down from a real station file.
+ */
+const PUBLIC_FILE = `var unt = ['2026/11/17 10:15:00','2026/11/17 10:19:30'];
+var gd_temp = [1.6,1.7];
+var gd_speed = [18,36];
+var gd_gust = [25,65];
+var gd_direction = [200,210];
+var gd_min_wind = [2,3];`;
+
+describe("parseHolfuyPublicFile", () => {
+  it("reads the published arrays", () => {
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    expect(series.times).toHaveLength(2);
+    expect(series.speedKmh).toEqual([18, 36]);
+    expect(series.gustKmh).toEqual([25, 65]);
+    expect(series.dirFromDeg).toEqual([200, 210]);
+    expect(series.tempC).toEqual([1.6, 1.7]);
+  });
+
+  it("returns nothing when there is no time array", () => {
+    expect(parseHolfuyPublicFile("var gd_speed = [1,2];")).toBeNull();
+    expect(parseHolfuyPublicFile("")).toBeNull();
+  });
+});
+
+describe("seriesOffsetMin", () => {
+  it("derives the station's offset from its newest point against the clock", () => {
+    // Newest point is 10:19 local. If the clock says 09:24 UTC, the station is an hour ahead.
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    const now = Date.parse("2026-11-17T09:24:00Z");
+    expect(seriesOffsetMin(series, now)).toBe(60);
+  });
+
+  it("handles a summer offset rather than assuming winter time", () => {
+    const series = parseHolfuyPublicFile(
+      `var unt = ['2026/07/01 12:00:00'];\nvar gd_speed = [10];`,
+    )!;
+    const now = Date.parse("2026-07-01T10:05:00Z"); // CEST: two hours ahead
+    expect(seriesOffsetMin(series, now)).toBe(120);
+  });
+
+  it("refuses to guess when the station has been offline for hours", () => {
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    const now = Date.parse("2026-11-19T09:24:00Z"); // two days stale
+    expect(seriesOffsetMin(series, now)).toBeNull();
+  });
+});
+
+describe("holfuySamplesFromSeries", () => {
+  it("converts km/h to m/s and shifts local time to UTC", () => {
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    const from = Date.parse("2026-11-17T09:00:00Z");
+    const to = Date.parse("2026-11-17T10:00:00Z");
+    const samples = holfuySamplesFromSeries(series, 60, from, to, "1542");
+    expect(samples).toHaveLength(2);
+    // 36 km/h is 10 m/s: a file read in m/s would be a hurricane and a session ruined.
+    expect(samples[1].speedMps).toBeCloseTo(10, 6);
+    expect(samples[1].gustMps!).toBeCloseTo(65 / 3.6, 6);
+    expect(samples[1].dirFromDeg).toBe(210);
+    // 10:19 local at UTC+1 is 09:19 UTC.
+    expect(new Date(samples[1].t).toISOString()).toBe("2026-11-17T09:19:30.000Z");
+    expect(samples[1].quality).toBe("measured");
+    expect(samples[1].stationId).toBe("1542");
+  });
+
+  it("keeps only the session window", () => {
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    // The two points are 09:15Z and 09:19:30Z once the +1 h offset is removed; this window holds one.
+    const from = Date.parse("2026-11-17T09:15:00Z");
+    const to = Date.parse("2026-11-17T09:18:00Z");
+    const samples = holfuySamplesFromSeries(series, 60, from, to, "1542");
+    expect(samples).toHaveLength(1);
+    expect(samples[0].dirFromDeg).toBe(200);
+  });
+
+  it("returns nothing for a session the five-day window does not reach", () => {
+    const series = parseHolfuyPublicFile(PUBLIC_FILE)!;
+    const from = Date.parse("2026-10-01T09:00:00Z");
+    const to = Date.parse("2026-10-01T12:00:00Z");
+    expect(holfuySamplesFromSeries(series, 60, from, to, "1542")).toEqual([]);
   });
 });

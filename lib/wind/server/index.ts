@@ -3,7 +3,7 @@
 import { providerById } from "../providers";
 import type { ProviderId } from "../../types";
 import { frostProvider } from "./frost";
-import { holfuyProvider } from "./holfuy";
+import { holfuyProvider, holfuyStationIds } from "./holfuy";
 import { openMeteoProvider } from "./openMeteo";
 import type { ServerProvider } from "./types";
 
@@ -22,7 +22,9 @@ export function providerAvailability(): Record<ProviderId, boolean> {
   return {
     frost: Boolean(process.env.FROST_CLIENT_ID),
     "open-meteo": true,
-    holfuy: Boolean(process.env.HOLFUY_API_KEY),
+    // Holfuy needs a *station*, not a password: without one it reads the station's public page, which
+    // publishes about five days of history. A password only widens that to their documented API.
+    holfuy: holfuyStationIds().length > 0,
   };
 }
 

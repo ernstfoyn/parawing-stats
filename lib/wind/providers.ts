@@ -68,15 +68,15 @@ export const WEATHER_PROVIDERS: Record<ProviderId, WeatherProvider> = {
     quality: "measured",
     instrumented: true,
     stationBased: true,
-    requiresKey: true,
-    keyEnvVar: "HOLFUY_API_KEY",
+    requiresKey: false,
+    keyEnvVar: "HOLFUY_STATIONS",
     coverage: "Holfuy's own network of (often) spot-specific stations",
     summary:
       "Usually the mast at the spot itself, which makes it the most accurate source there is when one exists where you sail — and far better than an official station tens of kilometres away.",
     limitations:
-      "Holfuy's API works and returns history for a whole day, but access is granted per station rather than to the network: email info@holfuy.hu with the station you ride and they open it, up to three for a non-owner. Until that is granted, every station answers \"no access\". They also expose no station directory and no coordinates, so the stations are configured rather than discovered, and querying by date returns their averaged rows rather than raw readings.",
+      "Read from each station's public page, which publishes about five days at fifteen minutes — so a session older than that has no Holfuy wind, and the app says so rather than showing the wrong day. Their documented API reaches further back but is granted per station on request (email info@holfuy.hu, up to three stations for a non-owner); every Norwegian station answers \"no access\" without it. Holfuy also exposes no station directory and no coordinates, so the stations are configured rather than discovered.",
     docsUrl: "https://api.holfuy.com",
-    available: "needs-key",
+    available: "yes",
   },
 };
 
