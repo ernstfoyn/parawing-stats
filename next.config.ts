@@ -5,6 +5,11 @@ import type { NextConfig } from "next";
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  // Records that this app was upgraded for the published Next.js security advisory, so a future
+  // upgrade check can see it was done deliberately rather than mistaking it for a stray version.
+  experimental: {
+    agentUpgrade: "security",
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
