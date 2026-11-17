@@ -320,6 +320,24 @@ export default function WindPanel({
     [providers, activeProvider],
   );
 
+  /**
+   * Switch source, and drop everything that described the previous one.
+   *
+   * A failure from Frost is not a statement about Open-Meteo, but it stayed on screen when the rider
+   * switched, which read as "this one is broken too" — it was the only report of a working source
+   * being broken that reached me. The station list belongs to the old provider for the same reason:
+   * a Frost lighthouse is not a candidate under a modelled grid.
+   */
+  const switchProvider = useCallback((id: string) => {
+    setActiveProvider(id);
+    setSearchError(null);
+    setObsError(null);
+    setStations([]);
+    setStationNotes([]);
+    setComparison(null);
+    setCompareError(null);
+  }, []);
+
   const search = useCallback(async () => {
     if (!centroid) {
       setSearchError("This session has no GPS centroid to search from.");
@@ -587,7 +605,7 @@ export default function WindPanel({
               <button
                 key={id}
                 type="button"
-                onClick={() => setActiveProvider(id)}
+                onClick={() => switchProvider(id)}
                 className="border px-2.5 py-1.5 text-left transition-colors"
                 style={{
                   borderColor: active ? "#121211" : RULE,
@@ -604,7 +622,7 @@ export default function WindPanel({
           })}
           <button
             type="button"
-            onClick={() => setActiveProvider("manual")}
+            onClick={() => switchProvider("manual")}
             className="border px-2.5 py-1.5 text-left transition-colors"
             style={{
               borderColor: activeProvider === "manual" ? "#121211" : RULE,
@@ -630,7 +648,13 @@ export default function WindPanel({
         <div className="border-t border-rule pt-4">
           <div className="flex flex-wrap items-end gap-2">
             <button type="button" className="btn btn-primary" onClick={search} disabled={searching}>
-              {searching ? "Searching…" : "Find stations near the track"}
+              {searching
+                ? "Searching…"
+                : // A modelled source has no stations to find; calling it one invites the reader to
+                  // believe there is a mast nearby when there is a grid cell.
+                  providerStatus?.stationBased === false
+                  ? "Use the model grid point for this track"
+                  : "Find stations near the track"}
             </button>
             <label className="flex items-center gap-2 text-[0.7rem] text-grey">
               within
