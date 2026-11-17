@@ -13,7 +13,11 @@
 # `npm run build` runs `prebuild`, which copies MapLibre's worker bundle into `public/`
 # (see scripts/copy-maplibre-worker.mjs). Without it the map never finishes loading.
 #
-# Set the weather credentials in the Netlify UI (Site configuration → Environment variables):
+# Set the weather settings in the Netlify UI (Site configuration → Environment variables):
 #   FROST_CLIENT_ID   — enables MET Norway Frost (measured station observations)
-#   FROST_BASE_URL    — optional
-#   HOLFUY_API_KEY    — optional (provider not implemented yet)
+#   FROST_USER_AGENT  — optional; a contact address, as MET asks every client to identify itself
+#   HOLFUY_STATIONS   — the Holfuy stations to watch, e.g. 1542 for Rolfstangen LBK. No key needed.
+#   HOLFUY_API_KEY    — optional; only if Holfuy ever grants per-station API access
+#
+# Sessions live in the browser's IndexedDB, so the server holds no user data: it only proxies the
+# weather lookups to keep the credentials off the client.

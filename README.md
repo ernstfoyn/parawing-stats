@@ -76,8 +76,10 @@ environment variables. Copy `.env.example` to `.env.local`:
 | Variable | Provider | Notes |
 | --- | --- | --- |
 | `FROST_CLIENT_ID` | MET Norway Frost | Free. Register at <https://frost.met.no/auth/requestCredentials.html>. Returns **measured** station observations. |
+| `FROST_USER_AGENT` | MET Norway Frost | Optional but polite: a contact address so MET can reach you instead of throttling the account. |
 | `FROST_BASE_URL` | MET Norway Frost | Optional; defaults to `https://frost.met.no`. |
-| `HOLFUY_API_KEY` | Holfuy | Optional. The provider is not implemented yet and reports itself as unsupported. |
+| `HOLFUY_STATIONS` | Holfuy | The station ids to watch, e.g. `1542` for Rolfstangen LBK. Needs **no key**: without a password the app reads each station's public page (about five days at fifteen minutes). |
+| `HOLFUY_API_KEY` | Holfuy | Optional. Holfuy grants API access per station on request (info@holfuy.hu, up to three stations for a non-owner); with a password the same provider reads their documented API, which reaches further back. |
 
 **Open-Meteo** needs no key. It is reanalysis/model output, so it is labelled `modelled` everywhere
 it appears and is only used when you explicitly pick it — the app never quietly substitutes modelled
@@ -165,10 +167,15 @@ through this app's own proxy.
 1. Push the repository to GitHub/GitLab and create a Netlify site from it.
 2. Build settings come from `netlify.toml` (`npm run build`, publish `.next`, Node 22). Netlify
    detects Next.js and installs the Next.js Runtime automatically.
-3. Add the weather credentials under **Site configuration → Environment variables**
-   (`FROST_CLIENT_ID`, optionally `FROST_BASE_URL`). Without a Frost key the app still works — you
-   get Open-Meteo and manual wind entry.
+3. Add the weather settings under **Site configuration → Environment variables**:
+   `FROST_CLIENT_ID`, optionally `FROST_USER_AGENT`, and `HOLFUY_STATIONS` for the Holfuy stations you
+   watch. Without a Frost key the app still works — you get Holfuy, Open-Meteo and manual wind entry.
 4. Deploy. `npm run build` also runs `prebuild`, so the MapLibre worker is present in `public/`.
+
+**What the deployed site does and does not share.** Sessions are stored in the browser's IndexedDB,
+so a deployment is not a shared database: each browser keeps its own sessions, and clearing site
+data deletes them. The server exists only to proxy the weather lookups, which keeps the credentials
+off the client. Import the same GPX on your phone and you get a second, independent copy.
 
 Nothing else is required: there is no database, no queue, and no long-running process.
 
@@ -178,5 +185,9 @@ Nothing else is required: there is no database, no queue, and no long-running pr
   shaped for it (`lib/import/`), but files are imported by hand.
 - Single-user and local to one browser; the data model is cloud-sync-ready but nothing syncs.
 - Session comparison and equipment comparison across sessions are not built yet.
-- Holfuy is a stub. The downwind classifier is rule-based (`dw-classifier-v1`, confidence capped at
-  80%); user corrections are stored so it can be replaced by a learned model later.
+- The downwind classifier is rule-based, not learned: a run is a stretch that *held* a course at or
+  beyond 125° (two thirds of its measured time, or 90 s unbroken) and rode past 150°, because a
+  parawing cannot hold either with the wing flying. Confidence is capped at 80% and the reasoning is
+  shown in words. Rider corrections are stored, so a learned model could replace it later.
+- Holfuy's public page only reaches back about five days; an older session reports no Holfuy wind
+  rather than the wrong day. Its documented API would reach further but is granted per station.
